@@ -1,5 +1,5 @@
 {
-  "name": "@qwen-code/qwen-code",
+  "name": "@catalyst/catalyst",
   "version": "0.0.9",
   "engines": {
     "node": ">=20.0.0"
@@ -10,10 +10,10 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/QwenLM/qwen-code.git"
+    "url": "git+https://github.com/catalyst-ai/catalyst.git"
   },
   "config": {
-    "sandboxImageUri": "ghcr.io/qwenlm/qwen-code:0.0.9"
+    "sandboxImageUri": "ghcr.io/catalyst-ai/catalyst:0.0.9"
   },
   "scripts": {
     "start": "node scripts/start.js",
@@ -50,7 +50,7 @@
     "clean": "node scripts/clean.js"
   },
   "bin": {
-    "qwen": "bundle/gemini.js"
+    "catalyst": "bundle/catalyst.js"
   },
   "files": [
     "bundle/",
@@ -92,6 +92,7 @@
     "yargs": "^17.7.2"
   },
   "dependencies": {
+    "minimatch": "^10.0.3",
     "node-fetch": "^3.3.2"
   }
 }

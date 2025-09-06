@@ -26,7 +26,7 @@ import {
   ToolCallRequestInfo,
   UnauthorizedError,
   UserPromptEvent,
-} from '@qwen-code/qwen-code-core';
+} from '@catalyst/core';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

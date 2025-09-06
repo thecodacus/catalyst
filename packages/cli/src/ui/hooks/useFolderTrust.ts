@@ -5,7 +5,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { type Config } from '@qwen-code/qwen-code-core';
+import { type Config } from '@catalyst/core';
 import { LoadedSettings } from '../../config/settings.js';
 import { FolderTrustChoice } from '../components/FolderTrustDialog.js';
 import { loadTrustedFolders, TrustLevel } from '../../config/trustedFolders.js';

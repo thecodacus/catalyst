@@ -6,11 +6,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { LoadedSettings } from '../../config/settings.js';
-import {
-  AuthType,
-  qwenOAuth2Events,
-  QwenOAuth2Event,
-} from '@qwen-code/qwen-code-core';
+import { AuthType, qwenOAuth2Events, QwenOAuth2Event } from '@catalyst/core';
 
 export interface DeviceAuthorizationInfo {
   verification_uri: string;

@@ -7,7 +7,7 @@
 import { type ReactNode } from 'react';
 import { Content } from '@google/genai';
 import { HistoryItemWithoutId } from '../types.js';
-import { Config, GitService, Logger } from '@qwen-code/qwen-code-core';
+import { Config, GitService, Logger } from '@catalyst/core';
 import { LoadedSettings } from '../../config/settings.js';
 import { UseHistoryManagerReturn } from '../hooks/useHistoryManager.js';
 import type { HistoryItem } from '../types.js';

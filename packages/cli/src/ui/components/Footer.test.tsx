@@ -8,15 +8,14 @@ import { render } from 'ink-testing-library';
 import { describe, it, expect, vi } from 'vitest';
 import { Footer } from './Footer.js';
 import * as useTerminalSize from '../hooks/useTerminalSize.js';
-import { tildeifyPath } from '@qwen-code/qwen-code-core';
+import { tildeifyPath } from '@catalyst/core';
 import path from 'node:path';
 
 vi.mock('../hooks/useTerminalSize.js');
 const useTerminalSizeMock = vi.mocked(useTerminalSize.useTerminalSize);
 
-vi.mock('@qwen-code/qwen-code-core', async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import('@qwen-code/qwen-code-core')>();
+vi.mock('@catalyst/core', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@catalyst/core')>();
   return {
     ...original,
     shortenPath: (p: string, len: number) => {

@@ -8,9 +8,8 @@ const { logSlashCommand } = vi.hoisted(() => ({
   logSlashCommand: vi.fn(),
 }));
 
-vi.mock('@qwen-code/qwen-code-core', async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import('@qwen-code/qwen-code-core')>();
+vi.mock('@catalyst/core', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@catalyst/core')>();
   return {
     ...original,
     logSlashCommand,
@@ -70,7 +69,7 @@ import {
   SlashCommandStatus,
   ToolConfirmationOutcome,
   makeFakeConfig,
-} from '@qwen-code/qwen-code-core';
+} from '@catalyst/core';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { LoadedSettings } from '../../config/settings.js';

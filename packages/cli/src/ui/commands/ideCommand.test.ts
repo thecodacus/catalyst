@@ -15,12 +15,12 @@ import {
 } from 'vitest';
 import { ideCommand } from './ideCommand.js';
 import { type CommandContext } from './types.js';
-import { type Config, DetectedIde } from '@qwen-code/qwen-code-core';
-import * as core from '@qwen-code/qwen-code-core';
+import { type Config, DetectedIde } from '@catalyst/core';
+import * as core from '@catalyst/core';
 
 vi.mock('child_process');
 vi.mock('glob');
-vi.mock('@qwen-code/qwen-code-core');
+vi.mock('@catalyst/core');
 
 describe('ideCommand', () => {
   let mockContext: CommandContext;

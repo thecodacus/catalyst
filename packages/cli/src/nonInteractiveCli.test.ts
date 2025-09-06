@@ -12,15 +12,14 @@ import {
   shutdownTelemetry,
   GeminiEventType,
   ServerGeminiStreamEvent,
-} from '@qwen-code/qwen-code-core';
+} from '@catalyst/core';
 import { Part } from '@google/genai';
 import { runNonInteractive } from './nonInteractiveCli.js';
 import { vi } from 'vitest';
 
 // Mock core modules
-vi.mock('@qwen-code/qwen-code-core', async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import('@qwen-code/qwen-code-core')>();
+vi.mock('@catalyst/core', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@catalyst/core')>();
   return {
     ...original,
     executeToolCall: vi.fn(),

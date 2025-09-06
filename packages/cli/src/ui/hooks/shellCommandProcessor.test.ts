@@ -17,9 +17,8 @@ import {
 
 const mockIsBinary = vi.hoisted(() => vi.fn());
 const mockShellExecutionService = vi.hoisted(() => vi.fn());
-vi.mock('@qwen-code/qwen-code-core', async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import('@qwen-code/qwen-code-core')>();
+vi.mock('@catalyst/core', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@catalyst/core')>();
   return {
     ...original,
     ShellExecutionService: { execute: mockShellExecutionService },
@@ -40,7 +39,7 @@ import {
   type GeminiClient,
   type ShellExecutionResult,
   type ShellOutputEvent,
-} from '@qwen-code/qwen-code-core';
+} from '@catalyst/core';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';

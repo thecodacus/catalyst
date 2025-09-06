@@ -5,11 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import {
-  Config,
-  CodeAssistServer,
-  UserTierId,
-} from '@qwen-code/qwen-code-core';
+import { Config, CodeAssistServer, UserTierId } from '@catalyst/core';
 
 export interface PrivacyState {
   isLoading: boolean;

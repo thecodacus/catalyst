@@ -23,7 +23,7 @@ WORKDIR /home/node/app
 RUN npm ci \
   && npm run build --workspaces \
   && npm pack -w @qwen-code/qwen-code --pack-destination ./packages/cli/dist \
-  && npm pack -w @qwen-code/qwen-code-core --pack-destination ./packages/core/dist
+  && npm pack -w @catalyst/core --pack-destination ./packages/core/dist
 
 # Runtime stage
 FROM docker.io/library/node:20-slim

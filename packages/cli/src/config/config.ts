@@ -28,7 +28,7 @@ import {
   WriteFileTool,
   MCPServerConfig,
   ConfigParameters,
-} from '@qwen-code/qwen-code-core';
+} from '@catalyst/core';
 import { Settings } from './settings.js';
 
 import { Extension, annotateActiveExtensions } from './extension.js';

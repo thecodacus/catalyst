@@ -23,7 +23,7 @@ import {
   ToolConfirmationOutcome,
   ToolRegistry,
   ToolResult,
-} from '@qwen-code/qwen-code-core';
+} from '@catalyst/core';
 import * as fs from 'fs/promises';
 import { Readable, Writable } from 'node:stream';
 import * as path from 'path';
@@ -776,14 +776,20 @@ function toToolCallContent(toolResult: ToolResult): acp.ToolCallContent | null {
     ) {
       // Handle TodoResultDisplay - convert to text representation
       const todoText = toolResult.returnDisplay.todos
-        .map((todo) => {
-          const statusIcon = {
-            pending: '○',
-            in_progress: '◐',
-            completed: '●',
-          }[todo.status];
-          return `${statusIcon} ${todo.content}`;
-        })
+        .map(
+          (todo: {
+            id: string;
+            content: string;
+            status: 'pending' | 'in_progress' | 'completed';
+          }) => {
+            const statusIcon = {
+              pending: '○',
+              in_progress: '◐',
+              completed: '●',
+            }[todo.status];
+            return `${statusIcon} ${todo.content}`;
+          },
+        )
         .join('\n');
 
       return {

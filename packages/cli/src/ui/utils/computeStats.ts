@@ -36,7 +36,7 @@ export const computeSessionStats = (
 ): ComputedSessionStats => {
   const { models, tools } = metrics;
   const totalApiTime = Object.values(models).reduce(
-    (acc, model) => acc + model.api.totalLatencyMs,
+    (acc, model: ModelMetrics) => acc + model.api.totalLatencyMs,
     0,
   );
   const totalToolTime = tools.totalDurationMs;
@@ -47,11 +47,11 @@ export const computeSessionStats = (
     agentActiveTime > 0 ? (totalToolTime / agentActiveTime) * 100 : 0;
 
   const totalCachedTokens = Object.values(models).reduce(
-    (acc, model) => acc + model.tokens.cached,
+    (acc, model: ModelMetrics) => acc + model.tokens.cached,
     0,
   );
   const totalPromptTokens = Object.values(models).reduce(
-    (acc, model) => acc + model.tokens.prompt,
+    (acc, model: ModelMetrics) => acc + model.tokens.prompt,
     0,
   );
   const cacheEfficiency =

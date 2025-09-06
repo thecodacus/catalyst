@@ -13,7 +13,8 @@ import {
   Config,
   getProjectCommandsDir,
   getUserCommandsDir,
-} from '@qwen-code/qwen-code-core';
+  GeminiCLIExtension,
+} from '@catalyst/core';
 import { ICommandLoader } from './types.js';
 import {
   CommandContext,
@@ -143,13 +144,17 @@ export class FileCommandLoader implements ICommandLoader {
     if (this.config) {
       const activeExtensions = this.config
         .getExtensions()
-        .filter((ext) => ext.isActive)
-        .sort((a, b) => a.name.localeCompare(b.name)); // Sort alphabetically for deterministic loading
+        .filter((ext: GeminiCLIExtension) => ext.isActive)
+        .sort((a: GeminiCLIExtension, b: GeminiCLIExtension) =>
+          a.name.localeCompare(b.name),
+        ); // Sort alphabetically for deterministic loading
 
-      const extensionCommandDirs = activeExtensions.map((ext) => ({
-        path: path.join(ext.path, 'commands'),
-        extensionName: ext.name,
-      }));
+      const extensionCommandDirs = activeExtensions.map(
+        (ext: GeminiCLIExtension) => ({
+          path: path.join(ext.path, 'commands'),
+          extensionName: ext.name,
+        }),
+      );
 
       dirs.push(...extensionCommandDirs);
     }

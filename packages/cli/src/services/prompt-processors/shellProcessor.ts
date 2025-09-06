@@ -4,10 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import {
-  checkCommandPermissions,
-  ShellExecutionService,
-} from '@qwen-code/qwen-code-core';
+import { checkCommandPermissions, ShellExecutionService } from '@catalyst/core';
 
 import { CommandContext } from '../../ui/commands/types.js';
 import { IPromptProcessor } from './types.js';
@@ -70,7 +67,7 @@ export class ShellProcessor implements IPromptProcessor {
         }
 
         // Add each soft denial disallowed command to the set for confirmation.
-        disallowedCommands.forEach((uc) => commandsToConfirm.add(uc));
+        disallowedCommands.forEach((uc: string) => commandsToConfirm.add(uc));
       }
       commandsToExecute.push({ fullMatch: match[0], command });
     }

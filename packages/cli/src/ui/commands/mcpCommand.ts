@@ -20,7 +20,7 @@ import {
   MCPServerStatus,
   mcpServerRequiresOAuth,
   getErrorMessage,
-} from '@qwen-code/qwen-code-core';
+} from '@catalyst/core';
 
 const COLOR_GREEN = '\u001b[32m';
 const COLOR_YELLOW = '\u001b[33m';
@@ -139,9 +139,7 @@ const getMcpStatus = async (
     if (server?.oauth?.enabled) {
       needsAuthHint = true;
       try {
-        const { MCPOAuthTokenStorage } = await import(
-          '@qwen-code/qwen-code-core'
-        );
+        const { MCPOAuthTokenStorage } = await import('@catalyst/core');
         const hasToken = await MCPOAuthTokenStorage.getToken(serverName);
         if (hasToken) {
           const isExpired = MCPOAuthTokenStorage.isTokenExpired(hasToken.token);
@@ -377,7 +375,7 @@ const authCommand: SlashCommand = {
       );
 
       // Import dynamically to avoid circular dependencies
-      const { MCPOAuthProvider } = await import('@qwen-code/qwen-code-core');
+      const { MCPOAuthProvider } = await import('@catalyst/core');
 
       let oauthConfig = server.oauth;
       if (!oauthConfig) {

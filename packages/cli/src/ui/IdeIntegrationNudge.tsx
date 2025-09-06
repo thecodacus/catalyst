@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { DetectedIde, getIdeInfo } from '@qwen-code/qwen-code-core';
+import { DetectedIde, getIdeInfo } from '@catalyst/core';
 import { Box, Text } from 'ink';
 import {
   RadioButtonSelect,

@@ -4,7 +4,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { ApprovalMode, type Config } from '@qwen-code/qwen-code-core';
+import { ApprovalMode, type Config } from '@catalyst/core';
 import { useEffect, useState } from 'react';
 import { useKeypress } from './useKeypress.js';
 

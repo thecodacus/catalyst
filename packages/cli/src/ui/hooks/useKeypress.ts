@@ -17,7 +17,7 @@ import {
   KittySequenceOverflowEvent,
   logKittySequenceOverflow,
   Config,
-} from '@qwen-code/qwen-code-core';
+} from '@catalyst/core';
 import { FOCUS_IN, FOCUS_OUT } from './useFocus.js';
 
 const ESC = '\u001B';
