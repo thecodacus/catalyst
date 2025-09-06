@@ -1,11 +1,11 @@
-# Qwen Code
+# Catalyst
 
 <div align="center">
 
-![Qwen Code Screenshot](./docs/assets/qwen-screenshot.png)
+![Catalyst Screenshot](./docs/assets/catalyst-screenshot.png)
 
-[![npm version](https://img.shields.io/npm/v/@qwen-code/qwen-code.svg)](https://www.npmjs.com/package/@qwen-code/qwen-code)
-[![License](https://img.shields.io/github/license/QwenLM/qwen-code.svg)](./LICENSE)
+[![npm version](https://img.shields.io/npm/v/@catalyst/cli.svg)](https://www.npmjs.com/package/@catalyst/cli)
+[![License](https://img.shields.io/github/license/thecodacus/catalyst.svg)](./LICENSE)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
 [![Downloads](https://img.shields.io/npm/dm/@qwen-code/qwen-code.svg)](https://www.npmjs.com/package/@qwen-code/qwen-code)
 
@@ -15,25 +15,11 @@
 
 </div>
 
-<div align="center">
-  
-  <!-- Keep these links. Translations will automatically update with the README. -->
-  <a href="https://readme-i18n.com/de/QwenLM/qwen-code">Deutsch</a> | 
-  <a href="https://readme-i18n.com/es/QwenLM/qwen-code">Español</a> | 
-  <a href="https://readme-i18n.com/fr/QwenLM/qwen-code">français</a> | 
-  <a href="https://readme-i18n.com/ja/QwenLM/qwen-code">日本語</a> | 
-  <a href="https://readme-i18n.com/ko/QwenLM/qwen-code">한국어</a> | 
-  <a href="https://readme-i18n.com/pt/QwenLM/qwen-code">Português</a> | 
-  <a href="https://readme-i18n.com/ru/QwenLM/qwen-code">Русский</a> | 
-  <a href="https://readme-i18n.com/zh/QwenLM/qwen-code">中文</a>
-  
-</div>
-
-Qwen Code is a powerful command-line AI workflow tool adapted from [**Gemini CLI**](https://github.com/google-gemini/gemini-cli) ([details](./README.gemini.md)), specifically optimized for [Qwen3-Coder](https://github.com/QwenLM/Qwen3-Coder) models. It enhances your development workflow with advanced code understanding, automated tasks, and intelligent assistance.
+Catalyst is a powerful command-line AI workflow tool derived from [**Qwen Code**](https://github.com/QwenLM/qwen-code), which was adapted from [**Gemini CLI**](https://github.com/google-gemini/gemini-cli) ([details](./README.gemini.md)), specifically optimized for [Qwen3-Coder](https://github.com/QwenLM/Qwen3-Coder) models. It enhances your development workflow with advanced code understanding, automated tasks, and intelligent assistance.
 
 ## 💡 Free Options Available
 
-Get started with Qwen Code at no cost using any of these free options:
+Get started with Catalyst at no cost using any of these free options:
 
 ### 🔥 Qwen OAuth (Recommended)
 
@@ -51,7 +37,7 @@ Get started with Qwen Code at no cost using any of these free options:
 For detailed setup instructions, see [Authorization](#authorization).
 
 > [!WARNING]
-> **Token Usage Notice**: Qwen Code may issue multiple API calls per cycle, resulting in higher token usage (similar to Claude Code). We're actively optimizing API efficiency.
+> **Token Usage Notice**: Catalyst may issue multiple API calls per cycle, resulting in higher token usage (similar to Claude Code). We're actively optimizing API efficiency.
 
 ## Key Features
 
@@ -79,8 +65,8 @@ qwen --version
 ### Install from source
 
 ```bash
-git clone https://github.com/QwenLM/qwen-code.git
-cd qwen-code
+git clone https://github.com/thecodacus/catalyst.git
+cd catalyst
 npm install
 npm install -g .
 ```
@@ -88,14 +74,14 @@ npm install -g .
 ### Install globally with Homebrew (macOS/Linux)
 
 ```bash
-brew install qwen-code
+brew install catalyst
 ```
 
 ## Quick Start
 
 ```bash
-# Start Qwen Code
-qwen
+# Start Catalyst
+catalyst
 
 # Example commands
 > Explain this codebase structure
@@ -109,7 +95,7 @@ Control your token usage with configurable session limits to optimize costs and 
 
 #### Configure Session Token Limit
 
-Create or edit `.qwen/settings.json` in your home directory:
+Create or edit `.catalyst/settings.json` in your home directory:
 
 ```json
 {
@@ -331,7 +317,7 @@ qwen
 - `/clear` - Clear conversation history
 - `/compress` - Compress history to save tokens
 - `/stats` - Show current session information
-- `/exit` or `/quit` - Exit Qwen Code
+- `/exit` or `/quit` - Exit Catalyst
 
 ### Keyboard Shortcuts
 
@@ -343,10 +329,10 @@ qwen
 
 ### Terminal-Bench Performance
 
-| Agent     | Model              | Accuracy |
-| --------- | ------------------ | -------- |
-| Qwen Code | Qwen3-Coder-480A35 | 37.5%    |
-| Qwen Code | Qwen3-Coder-30BA3B | 31.3%    |
+| Agent    | Model              | Accuracy |
+| -------- | ------------------ | -------- |
+| Catalyst | Qwen3-Coder-480A35 | 37.5%    |
+| Catalyst | Qwen3-Coder-30BA3B | 31.3%    |
 
 ## Development & Contributing
 
@@ -368,4 +354,4 @@ This project is based on [Google Gemini CLI](https://github.com/google-gemini/ge
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=QwenLM/qwen-code&type=Date)](https://www.star-history.com/#QwenLM/qwen-code&Date)
+[![Star History Chart](https://api.star-history.com/svg?repos=thecodacus/catalyst&type=Date)](https://www.star-history.com/#thecodacus/catalyst&Date)
