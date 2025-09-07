@@ -13,8 +13,10 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Separator } from '@/components/ui/separator';
 import { apiClient } from '@/lib/api/client';
 import { toast } from 'sonner';
+import { Github } from 'lucide-react';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -79,6 +81,30 @@ export default function LoginPage() {
               {isLoading ? 'Logging in...' : 'Login'}
             </Button>
           </form>
+          
+          <div className="my-6">
+            <Separator className="relative">
+              <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-2 text-xs text-muted-foreground">
+                OR
+              </span>
+            </Separator>
+          </div>
+          
+          <div className="space-y-3">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={() => {
+                window.location.href = '/api/auth/github';
+              }}
+              disabled={isLoading}
+            >
+              <Github className="mr-2 h-4 w-4" />
+              Continue with GitHub
+            </Button>
+          </div>
+          
           <div className="mt-4 text-center text-sm">
             Don&apos;t have an account?{' '}
             <Link href="/register" className="text-primary hover:underline">

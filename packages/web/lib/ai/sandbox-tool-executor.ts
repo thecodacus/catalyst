@@ -4,6 +4,8 @@ import {
   Config,
   ToolErrorType,
   FileDiff,
+  ToolResultDisplay,
+  TodoResultDisplay,
 } from '@catalyst/core';
 import {
   getCodeSandboxService,
@@ -17,7 +19,8 @@ export class SandboxToolExecutor {
   private workspaceDir = SANDBOX_REPO_PATH;
   private modifiedFiles: Set<string> = new Set();
   private gitConfigured: boolean = false;
-  private outputStreamCallbacks: Map<string, (output: string) => void> = new Map();
+  private outputStreamCallbacks: Map<string, (output: string) => void> =
+    new Map();
 
   constructor(
     private projectId: string,
@@ -293,13 +296,19 @@ export class SandboxToolExecutor {
         case 'bash':
         case 'run_bash_command':
         case 'run_shell_command':
-          result = await this.executeBashTool({ ...request.args, callId: request.callId });
+          result = await this.executeBashTool({
+            ...request.args,
+            callId: request.callId,
+          });
           break;
         case 'grep':
           result = await this.executeGrepTool(request.args);
           break;
         case 'glob':
           result = await this.executeGlobTool(request.args);
+          break;
+        case 'todo_write':
+          result = await this.executeTodoWriteTool(request.args);
           break;
         default:
           throw new Error(
@@ -622,7 +631,7 @@ export class SandboxToolExecutor {
     const is_background = (args.is_background as boolean) || false;
     const timeout = (args.timeout as number) || 120000; // Default 2 minutes
     const outputIdleTimeout = 10000; // 10 seconds of no output change
-    
+
     if (!command) {
       throw new Error('Command is required');
     }
@@ -671,7 +680,9 @@ export class SandboxToolExecutor {
           if (!isCompleted && outputBuffer.length === lastOutputLength) {
             isCompleted = true;
             console.log(`⏱️ Command output idle for ${outputIdleTimeout}ms`);
-            resolve(outputBuffer + '\n\n[Command terminated - no output for 10s]');
+            resolve(
+              outputBuffer + '\n\n[Command terminated - no output for 10s]',
+            );
           }
         }, outputIdleTimeout);
       };
@@ -680,16 +691,13 @@ export class SandboxToolExecutor {
       resetIdleTimeout();
 
       // Execute command with output streaming
-      this.sandboxService.executeCommand(
-        this.projectId,
-        command,
-        false,
-        (chunk: string) => {
+      this.sandboxService
+        .executeCommand(this.projectId, command, false, (chunk: string) => {
           if (isCompleted) return;
 
           outputBuffer += chunk;
           lastOutputTime = Date.now();
-          
+
           // Stream to callback if available
           if (streamCallback) {
             streamCallback(chunk);
@@ -700,22 +708,23 @@ export class SandboxToolExecutor {
             lastOutputLength = outputBuffer.length;
             resetIdleTimeout();
           }
-        },
-      ).then((result) => {
-        if (!isCompleted) {
-          isCompleted = true;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          if (idleTimeoutHandle) clearTimeout(idleTimeoutHandle);
-          resolve(result || outputBuffer);
-        }
-      }).catch((error) => {
-        if (!isCompleted) {
-          isCompleted = true;
-          if (timeoutHandle) clearTimeout(timeoutHandle);
-          if (idleTimeoutHandle) clearTimeout(idleTimeoutHandle);
-          reject(error);
-        }
-      });
+        })
+        .then((result) => {
+          if (!isCompleted) {
+            isCompleted = true;
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            if (idleTimeoutHandle) clearTimeout(idleTimeoutHandle);
+            resolve(result || outputBuffer);
+          }
+        })
+        .catch((error) => {
+          if (!isCompleted) {
+            isCompleted = true;
+            if (timeoutHandle) clearTimeout(timeoutHandle);
+            if (idleTimeoutHandle) clearTimeout(idleTimeoutHandle);
+            reject(error);
+          }
+        });
     });
 
     // Clean up the stream callback
@@ -812,5 +821,103 @@ export class SandboxToolExecutor {
       content: [{ text: matches.join('\n') }],
       display: matches.join('\n'),
     };
+  }
+
+  private async executeTodoWriteTool(args: Record<string, unknown>): Promise<{
+    content: { text: string }[];
+    display?: ToolCallResponseInfo['resultDisplay'];
+    error?: ToolCallResponseInfo['error'];
+    errorType?: ToolCallResponseInfo['errorType'];
+  }> {
+    interface TodoItem {
+      id: string;
+      content: string;
+      status: 'pending' | 'in_progress' | 'completed';
+      priority?: 'high' | 'medium' | 'low';
+    }
+
+    const todos = args.todos as TodoItem[];
+    const modifiedByUser = args.modified_by_user as boolean;
+    const modifiedContent = args.modified_content as string;
+
+    if (!Array.isArray(todos)) {
+      throw new Error('todos parameter must be an array');
+    }
+
+    console.log('✅ Sandbox todo_write tool - updating todos:', {
+      todoCount: todos.length,
+      modifiedByUser,
+    });
+
+    try {
+      let finalTodos: TodoItem[];
+
+      if (modifiedByUser && modifiedContent !== undefined) {
+        // User modified the content in external editor, parse it directly
+        const data = JSON.parse(modifiedContent);
+        finalTodos = Array.isArray(data.todos) ? data.todos : [];
+      } else {
+        // Use the normal todo logic - simply replace with new todos
+        finalTodos = todos;
+      }
+
+      // Store todos in a file within the sandbox
+      const todoFilePath = `${this.workspaceDir}/.catalyst/todos.json`;
+      const todoData = {
+        todos: finalTodos,
+        lastUpdated: new Date().toISOString(),
+        projectId: this.projectId,
+      };
+
+      // Ensure .catalyst directory exists
+      await this.sandboxService.executeCommand(
+        this.projectId,
+        `mkdir -p ${this.workspaceDir}/.catalyst`,
+      );
+
+      // Write the todo file
+      await this.sandboxService.writeFile(
+        this.projectId,
+        todoFilePath,
+        JSON.stringify(todoData, null, 2),
+      );
+
+      // Create structured display object for rich UI rendering
+      const todoResultDisplay: TodoResultDisplay = {
+        type: 'todo_list' as const,
+        todos: finalTodos,
+      };
+
+      return {
+        content: [
+          {
+            text: JSON.stringify({
+              success: true,
+              todos: finalTodos,
+            }),
+          },
+        ],
+        display: todoResultDisplay,
+      };
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      console.error(
+        `[TodoWriteTool] Error executing todo_write: ${errorMessage}`,
+      );
+      return {
+        content: [
+          {
+            text: JSON.stringify({
+              success: false,
+              error: `Failed to write todos. Detail: ${errorMessage}`,
+            }),
+          },
+        ],
+        display: `Error writing todos: ${errorMessage}`,
+        error: error instanceof Error ? error : new Error(errorMessage),
+        errorType: ToolErrorType.UNHANDLED_EXCEPTION,
+      };
+    }
   }
 }

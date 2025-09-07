@@ -4,9 +4,13 @@ import bcrypt from 'bcryptjs';
 export interface IUser {
   _id: string;
   email: string;
-  password: string;
+  password?: string;
   name: string;
   plan: 'free' | 'pro' | 'enterprise';
+  githubId?: string;
+  githubUsername?: string;
+  githubAccessToken?: string;
+  avatar?: string;
   gitIntegrations?: {
     github?: {
       accessToken: string;
@@ -20,6 +24,12 @@ export interface IUser {
       email: string;
       connectedAt: Date;
     };
+  };
+  settings?: {
+    provider?: 'openai' | 'anthropic' | 'openrouter' | 'gemini' | 'custom';
+    model?: string;
+    customEndpoint?: string;
+    providers?: any; // Using any to match the Object type in schema
   };
   createdAt: Date;
   updatedAt: Date;
@@ -37,7 +47,9 @@ const userSchema = new Schema<IUser>(
     },
     password: {
       type: String,
-      required: true,
+      required: function() {
+        return !this.githubId;
+      },
     },
     name: {
       type: String,
@@ -49,6 +61,17 @@ const userSchema = new Schema<IUser>(
       enum: ['free', 'pro', 'enterprise'],
       default: 'free',
     },
+    githubId: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    githubUsername: String,
+    githubAccessToken: {
+      type: String,
+      select: false,
+    },
+    avatar: String,
     gitIntegrations: {
       github: {
         accessToken: {
@@ -69,6 +92,26 @@ const userSchema = new Schema<IUser>(
         connectedAt: Date,
       },
     },
+    settings: {
+      type: {
+        provider: {
+          type: String,
+          enum: ['openai', 'anthropic', 'openrouter', 'gemini', 'custom'],
+          default: 'anthropic',
+        },
+        model: String,
+        customEndpoint: String,
+        providers: {
+          type: Object,
+          default: {},
+        },
+      },
+      default: {
+        provider: 'anthropic',
+        providers: {},
+      },
+      _id: false,  // Prevent subdocument from having its own _id
+    },
   },
   {
     timestamps: true,
@@ -77,7 +120,7 @@ const userSchema = new Schema<IUser>(
 
 // Hash password before saving
 userSchema.pre('save', async function (next) {
-  if (!this.isModified('password')) return next();
+  if (!this.isModified('password') || !this.password) return next();
 
   try {
     const salt = await bcrypt.genSalt(10);
@@ -92,6 +135,7 @@ userSchema.pre('save', async function (next) {
 userSchema.methods.comparePassword = async function (
   candidatePassword: string,
 ): Promise<boolean> {
+  if (!this.password) return false;
   return bcrypt.compare(candidatePassword, this.password);
 };
 

@@ -418,7 +418,8 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
                 toolCall: {
                   ...existingPart.toolCall,
                   status: event.success ? 'completed' : 'failed',
-                  result: event.success && event.result ? event.result : 
+                  result: event.success && event.result ? 
+                          (event.resultDisplay || event.result) : 
                           !event.success && event.error ? { error: event.error } : 
                           existingPart.toolCall.result
                 }

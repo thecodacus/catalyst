@@ -23,6 +23,7 @@ import {
 } from '@/components/tool';
 import { Response } from '@/components/response';
 import { ShellCommandDisplay } from '@/components/shell-command-display';
+import { TodoDisplay } from '@/components/todo-display';
 
 interface TaskCardProps {
   task: ITask;
@@ -211,15 +212,25 @@ interface ToolCallDisplayProps {
 
 export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
   // Check if this is a shell command
-  const isShellCommand = ['bash', 'run_bash_command', 'run_shell_command'].includes(toolCall.tool);
-  
+  const isShellCommand = [
+    'bash',
+    'run_bash_command',
+    'run_shell_command',
+  ].includes(toolCall.tool);
+  const isTodoList = toolCall.tool === 'todo_write';
+
   // Debug logging
-  console.log('ToolCallDisplay - tool name:', toolCall.tool, 'isShellCommand:', isShellCommand);
-  
+  console.log(
+    'ToolCallDisplay - tool name:',
+    toolCall.tool,
+    'isShellCommand:',
+    isShellCommand,
+  );
+
   if (isShellCommand) {
     return <ShellCommandDisplay toolCall={toolCall} />;
   }
-  
+
   // Map our status to Tool component states
   const getToolState = () => {
     switch (toolCall.status) {
@@ -239,29 +250,36 @@ export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
   // Format the result for display
   const formatResult = (result: unknown) => {
     if (result === undefined || result === null) return null;
-    
+
     // Handle error results
     if (typeof result === 'object' && result !== null && 'error' in result) {
       return (result as { error: string }).error;
     }
-    
+
+    // Handle todo_list results
+    if (
+      typeof result === 'object' &&
+      result !== null &&
+      'type' in result &&
+      (result as any).type === 'todo_list' &&
+      'todos' in result
+    ) {
+      return <TodoDisplay todos={(result as any).todos} />;
+    }
+
     // Handle text results
     if (typeof result === 'string') {
       return <Response>{result}</Response>;
     }
-    
+
     // Handle array results
     if (Array.isArray(result)) {
       if (result.length > 0 && typeof result[0] === 'string') {
         // File listings or similar
-        return (
-          <Response>
-            {result.join('\n')}
-          </Response>
-        );
+        return <Response>{result.join('\n')}</Response>;
       }
     }
-    
+
     // Default to JSON display
     return (
       <pre className="text-xs overflow-x-auto">
@@ -271,18 +289,18 @@ export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
   };
 
   // Auto-open tools that are running, completed, or failed
-  const defaultOpen = toolCall.status === 'running' || toolCall.status === 'completed' || toolCall.status === 'failed';
+  const defaultOpen =
+    toolCall.status === 'running' ||
+    toolCall.status === 'completed' ||
+    toolCall.status === 'failed';
 
   const toolState = getToolState();
-  
+
   return (
     <Tool defaultOpen={defaultOpen} state={toolState} className="my-2">
-      <ToolHeader 
-        type={`tool-${toolCall.tool}`} 
-        state={toolState} 
-      />
+      <ToolHeader type={`tool-${toolCall.tool}`} state={toolState} />
       <ToolContent>
-        <ToolInput input={toolCall.params} />
+        {!isTodoList && <ToolInput input={toolCall.params} />}
         <ToolOutput
           output={
             toolCall.streamingOutput ? (
@@ -296,13 +314,13 @@ export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
                 )}
                 {toolCall.result !== undefined && formatResult(toolCall.result)}
               </div>
-            ) : (
-              toolCall.result !== undefined ? formatResult(toolCall.result) : undefined
-            )
+            ) : toolCall.result !== undefined ? (
+              formatResult(toolCall.result)
+            ) : undefined
           }
           errorText={
-            toolCall.status === 'failed' && 
-            typeof toolCall.result === 'object' && 
+            toolCall.status === 'failed' &&
+            typeof toolCall.result === 'object' &&
             toolCall.result !== null &&
             'error' in toolCall.result
               ? (toolCall.result as { error: string }).error

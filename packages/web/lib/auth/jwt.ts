@@ -1,5 +1,6 @@
 import jwt from 'jsonwebtoken';
 import { NextRequest } from 'next/server';
+import { cookies } from 'next/headers';
 
 const JWT_SECRET =
   process.env.JWT_SECRET || 'your-secret-key-change-in-production';
@@ -7,11 +8,13 @@ const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 export interface TokenPayload {
   userId: string;
-  email: string;
-  plan: 'free' | 'pro' | 'enterprise';
+  email?: string;
+  plan?: 'free' | 'pro' | 'enterprise';
 }
 
-export function generateToken(payload: TokenPayload): string {
+export function generateToken(
+  payload: Partial<TokenPayload> & { userId: string },
+): string {
   return jwt.sign(payload, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN,
   } as jwt.SignOptions);
@@ -35,11 +38,30 @@ export async function getCurrentUser(
   request: NextRequest,
 ): Promise<TokenPayload | null> {
   try {
-    const token = getTokenFromRequest(request);
+    // First check Authorization header
+    let token = getTokenFromRequest(request);
+    let tokenSource = 'header';
+
+    // If not in header, check cookies
+    if (!token) {
+      const cookieStore = await cookies();
+      const authCookie = cookieStore.get('auth-token');
+      token = authCookie?.value || null;
+      tokenSource = 'cookie';
+    }
+
     if (!token) return null;
 
-    return verifyToken(token);
-  } catch {
+    const payload = verifyToken(token);
+    console.log(`[AUTH] User authenticated from ${tokenSource}:`, {
+      userId: payload.userId,
+      email: payload.email,
+      path: request.nextUrl.pathname,
+    });
+    
+    return payload;
+  } catch (error) {
+    console.error('[AUTH] Token verification failed:', error);
     return null;
   }
 }

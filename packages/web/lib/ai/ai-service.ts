@@ -18,6 +18,8 @@ export interface AIServiceConfig {
   cwd?: string;
   isSandboxed?: boolean;
   sandboxId?: string;
+  provider?: 'openai' | 'anthropic' | 'openrouter' | 'gemini' | 'custom';
+  customEndpoint?: string;
 }
 
 export class AIService {
@@ -70,27 +72,51 @@ export class AIService {
       let baseUrl = this.serviceConfig.baseUrl;
       let model = this.serviceConfig.model;
 
-      if (!authType) {
-        // Check for Anthropic Claude configuration
-        if (process.env.ANTHROPIC_API_KEY) {
-          authType = AuthType.USE_OPENAI; // Use OpenAI-compatible interface
-          apiKey = process.env.ANTHROPIC_API_KEY;
-          baseUrl = 'https://api.anthropic.com/v1';
-          model = process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-latest';
+      console.log('AI Service initialization - Provider:', this.serviceConfig.provider, 'Model:', model);
+      
+      if (!authType && this.serviceConfig.provider) {
+        // Configure based on provider
+        switch (this.serviceConfig.provider) {
+          case 'openrouter':
+            authType = AuthType.USE_OPENAI;
+            baseUrl = 'https://openrouter.ai/api/v1';
+            model = model || 'openai/gpt-4-turbo-preview';
+            break;
+          case 'anthropic':
+            authType = AuthType.USE_OPENAI;
+            baseUrl = 'https://api.anthropic.com/v1';
+            model = model || 'claude-3-5-sonnet-latest';
+            break;
+          case 'openai':
+            authType = AuthType.USE_OPENAI;
+            baseUrl = baseUrl || 'https://api.openai.com/v1';
+            model = model || 'gpt-4-turbo-preview';
+            break;
+          case 'gemini':
+            authType = AuthType.USE_GEMINI;
+            break;
+          case 'custom':
+            authType = AuthType.USE_OPENAI;
+            baseUrl = this.serviceConfig.customEndpoint || baseUrl;
+            break;
         }
-        // Check for OpenAI configuration
-        else if (apiKey || process.env.OPENAI_API_KEY) {
+      }
+
+      console.log('AI Service after provider switch - AuthType:', authType, 'BaseURL:', baseUrl, 'Model:', model);
+
+      if (!authType || !apiKey) {
+        // Fall back to environment variables only as a last resort
+        if (process.env.OPENAI_API_KEY) {
           authType = AuthType.USE_OPENAI;
-          apiKey = apiKey || process.env.OPENAI_API_KEY;
-          baseUrl = baseUrl || process.env.OPENAI_BASE_URL;
+          apiKey = process.env.OPENAI_API_KEY;
+          baseUrl = process.env.OPENAI_BASE_URL;
           model = model || process.env.OPENAI_MODEL;
-        }
-        // Check for Gemini configuration
-        else if (process.env.GEMINI_API_KEY) {
+        } else if (process.env.GEMINI_API_KEY) {
           authType = AuthType.USE_GEMINI;
+          apiKey = process.env.GEMINI_API_KEY;
         } else {
           throw new Error(
-            'No API key provided for AI service. Please set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY',
+            'No API key provided for AI service. Please configure your AI provider in settings.',
           );
         }
       }
@@ -100,11 +126,27 @@ export class AIService {
         this._config.setModel(model);
       }
 
-      // Set environment variables for OpenAI auth type to work with custom config
+      // Create a temporary environment context for this service instance
+      const originalEnv = {
+        OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+        OPENAI_BASE_URL: process.env.OPENAI_BASE_URL,
+        OPENAI_MODEL: process.env.OPENAI_MODEL,
+        OPENAI_DEFAULT_HEADERS: process.env.OPENAI_DEFAULT_HEADERS,
+      };
+
+      // Temporarily set environment variables for this initialization
       if (authType === AuthType.USE_OPENAI) {
         if (apiKey) process.env.OPENAI_API_KEY = apiKey;
         if (baseUrl) process.env.OPENAI_BASE_URL = baseUrl;
         if (model) process.env.OPENAI_MODEL = model;
+        
+        // Set OpenRouter specific headers if needed
+        if (this.serviceConfig.provider === 'openrouter') {
+          process.env.OPENAI_DEFAULT_HEADERS = JSON.stringify({
+            'HTTP-Referer': 'http://localhost:3000',
+            'X-Title': 'Catalyst',
+          });
+        }
       }
 
       // Use refreshAuth which creates ContentGeneratorConfig and initializes GeminiClient
@@ -112,6 +154,17 @@ export class AIService {
 
       // Get the initialized GeminiClient from config
       this._geminiClient = this._config.getGeminiClient();
+      
+      // Restore original environment variables
+      if (authType === AuthType.USE_OPENAI) {
+        Object.entries(originalEnv).forEach(([key, value]) => {
+          if (value === undefined) {
+            delete process.env[key];
+          } else {
+            process.env[key] = value;
+          }
+        });
+      }
     } catch (error) {
       console.error('Failed to initialize AI service:', error);
       throw error;
@@ -234,42 +287,16 @@ export class AIService {
   }
 }
 
-// Singleton instance for the application
-let aiServiceInstance: AIService | null = null;
-let lastAuthConfig: string | null = null;
-
+// Create a new AI service instance per request to avoid state sharing
 export async function getAIService(
   config?: AIServiceConfig,
 ): Promise<AIService> {
-  // Create a fingerprint of the current configuration including directories
-  const currentAuthConfig = JSON.stringify({
-    anthropicKey: !!process.env.ANTHROPIC_API_KEY,
-    openaiKey: !!process.env.OPENAI_API_KEY,
-    geminiKey: !!process.env.GEMINI_API_KEY,
-    model:
-      config?.model || process.env.CLAUDE_MODEL || process.env.OPENAI_MODEL,
-    targetDir: config?.targetDir,
-    cwd: config?.cwd,
-    isSandboxed: config?.isSandboxed,
-    sandboxId: config?.sandboxId,
-  });
-
-  // If auth config changed, destroy the old instance
-  if (aiServiceInstance && lastAuthConfig !== currentAuthConfig) {
-    destroyAIService();
-  }
-
-  if (!aiServiceInstance) {
-    aiServiceInstance = new AIService(config || {});
-    await aiServiceInstance.initialize();
-    lastAuthConfig = currentAuthConfig;
-  }
-  return aiServiceInstance;
+  const aiService = new AIService(config || {});
+  await aiService.initialize();
+  return aiService;
 }
 
+// No longer needed - each request creates its own instance
 export function destroyAIService() {
-  if (aiServiceInstance) {
-    aiServiceInstance.destroy();
-    aiServiceInstance = null;
-  }
+  // Deprecated - kept for backward compatibility
 }

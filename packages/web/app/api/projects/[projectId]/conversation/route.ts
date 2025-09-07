@@ -12,6 +12,7 @@ import {
   ToolCallResponseInfo,
 } from '@catalyst/core';
 import { SANDBOX_REPO_PATH } from '@/lib/constants/sandbox-paths';
+import { loadUserAISettings } from '@/lib/ai/load-user-settings';
 
 interface RouteParams {
   params: Promise<{
@@ -178,14 +179,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             // Send user message event
             sendEvent(SSEEventType.UserMessage, { messageId: userMessage._id });
 
-            // Initialize AI service for CodeSandbox VM environment
+            // Load user's AI settings
+            const userSettings = await loadUserAISettings(user.userId);
+            
+            // Initialize AI service with user settings for CodeSandbox VM environment
             const aiConfig: AIServiceConfig = {
-              // The AI service will auto-detect the provider based on environment variables
-              // SandboxConfig will handle the sandbox repo paths properly
               targetDir: SANDBOX_REPO_PATH,
               cwd: SANDBOX_REPO_PATH,
               isSandboxed: true,
               sandboxId: projectId, // We'll use projectId as the sandbox identifier
+              // Pass user settings directly to AI service
+              provider: userSettings?.provider,
+              apiKey: userSettings?.apiKey,
+              model: userSettings?.model,
+              customEndpoint: userSettings?.customEndpoint,
             };
 
             const aiService = await getAIService(aiConfig);
@@ -413,6 +420,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                     callId: toolCall.callId,
                     success: true,
                     result: outputText,
+                    resultDisplay: toolResponse.resultDisplay,
                   });
                 } catch (error) {
                   console.error(

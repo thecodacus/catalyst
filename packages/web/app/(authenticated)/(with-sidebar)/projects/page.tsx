@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Plus, Search, MoreVertical, Loader2 } from 'lucide-react';
+import { Plus, Search, MoreVertical, Loader2, Github } from 'lucide-react';
 import Link from 'next/link';
 import {
   DropdownMenu,

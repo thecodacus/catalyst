@@ -94,6 +94,73 @@ Catalyst is a monorepo with workspace packages:
 - If unsure about any implementation details, carefully study the CLI's approach
 - Goal is to exactly replicate CLI functionalities in the web interface
 
+## Authentication Patterns
+
+### API Route Protection
+
+The web package uses a consistent authentication pattern for protecting API routes:
+
+#### Using withAuth Middleware
+```typescript
+// ✅ CORRECT - Use withAuth middleware for protected routes
+import { withAuth } from '@/lib/auth/middleware';
+
+export async function GET(request: NextRequest) {
+  return withAuth(request, async (req, user) => {
+    // user contains: { userId, email?, plan? }
+    // Your protected logic here
+  });
+}
+```
+
+#### Authentication Flow
+1. **JWT Token Storage**: Tokens are stored in HTTP-only cookies named `auth-token`
+2. **API Requests**: Frontend sends JWT in Authorization header: `Bearer <token>`
+3. **Middleware**: `withAuth` validates token and provides user info to handlers
+4. **Database Access**: Use `user.userId` to query user-specific data
+
+#### GitHub OAuth Integration
+- OAuth flow initiated at `/api/auth/github`
+- Callback handled at `/api/auth/github/callback`
+- GitHub access tokens stored encrypted in user document
+- Use `User.findById(userId).select('+githubAccessToken')` to retrieve
+
+#### Common Patterns
+```typescript
+// Protected route with database access
+export async function GET(request: NextRequest) {
+  return withAuth(request, async (req, user) => {
+    await connectToDatabase();
+    
+    // Access user data
+    const fullUser = await User.findById(user.userId);
+    
+    // Your logic here
+    return NextResponse.json(data);
+  });
+}
+
+// Optional authentication
+import { optionalAuth } from '@/lib/auth/middleware';
+
+export async function GET(request: NextRequest) {
+  return optionalAuth(request, async (req, user) => {
+    // user can be null here
+    if (user) {
+      // Authenticated logic
+    } else {
+      // Public logic
+    }
+  });
+}
+```
+
+#### Important Notes
+- Never implement custom session management - use `withAuth`
+- Don't access cookies directly in API routes (except auth routes)
+- Always use `connectToDatabase()` before database operations
+- GitHub tokens require explicit selection: `.select('+githubAccessToken')`
+
 ## Design System Guidelines (Web Package)
 
 ### File Locations

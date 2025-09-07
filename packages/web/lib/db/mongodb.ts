@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 
 const MONGODB_URI =
   process.env.MONGODB_URI || 'mongodb://localhost:27017/qwen-code';
-const MONGODB_DB = process.env.MONGODB_DB || 'qwen-code';
+const MONGODB_DB = process.env.MONGODB_DB || 'catalyst';
 
 // For native MongoDB client
 let cachedClient: MongoClient | null = null;

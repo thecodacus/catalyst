@@ -8,11 +8,14 @@ import { apiClient } from '@/lib/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import { Animated } from '@/components/ui/animated';
 import { CatalystPromptInput } from '@/components/catalyst-prompt-input';
+import { GitHubRepoModal } from '@/components/github-repo-modal';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 export default function Home() {
   const [query, setQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const [isGitHubModalOpen, setIsGitHubModalOpen] = useState(false);
   const router = useRouter();
   const { user } = useAuthStore();
 
@@ -20,11 +23,26 @@ export default function Home() {
     try {
       setIsCreating(true);
       
-      // Create a new project with the query as the initial prompt
-      const project = await apiClient.createProject({
-        name: submittedQuery.slice(0, 50), // Use first 50 chars of query as project name
-        description: `Created from search: ${submittedQuery}`
-      });
+      // Prepare project creation data
+      const projectData: any = {
+        name: selectedRepo ? selectedRepo.repo.name : submittedQuery.slice(0, 50),
+        description: selectedRepo 
+          ? `${selectedRepo.repo.description || `Imported from ${selectedRepo.repo.full_name}`} - ${submittedQuery}`
+          : `Created from search: ${submittedQuery}`
+      };
+
+      // Include GitHub repo info if selected
+      if (selectedRepo) {
+        projectData.githubRepo = {
+          id: selectedRepo.repo.id,
+          fullName: selectedRepo.repo.full_name,
+          cloneUrl: selectedRepo.repo.clone_url,
+          branch: selectedRepo.branch,
+        };
+      }
+
+      // Create a new project
+      const project = await apiClient.createProject(projectData);
 
       // Navigate to the project with the query as initial message
       router.push(`/projects/${project._id}?q=${encodeURIComponent(submittedQuery)}`);
@@ -36,7 +54,26 @@ export default function Home() {
       }
     } finally {
       setIsCreating(false);
+      setSelectedRepo(null); // Clear selected repo after creating project
     }
+  };
+
+  const [selectedRepo, setSelectedRepo] = useState<{repo: any; branch: string} | null>(null);
+
+  const handleGitHubImport = (repo: any, branch: string) => {
+    // Store the selected repository
+    setSelectedRepo({ repo, branch });
+    
+    // Clear the query so user can type fresh
+    setQuery('');
+    
+    // Show a toast to indicate the repo is selected
+    toast.success(`Selected ${repo.name} repository. Enter your prompt to get started!`);
+  };
+
+  const handleClearRepo = () => {
+    setSelectedRepo(null);
+    setQuery('');
   };
 
   const quickActions = [
@@ -101,12 +138,23 @@ export default function Home() {
           value={query}
           onChange={setQuery}
           onSubmit={handleSubmit}
-          placeholder="Ask me to help with your code..."
+          placeholder={selectedRepo ? "What would you like to do with this repository?" : "Ask me to help with your code..."}
           isLoading={isCreating}
           autoFocus
           showGlow
+          showGitHubImport
+          onGitHubImport={() => setIsGitHubModalOpen(true)}
+          selectedRepo={selectedRepo}
+          onClearRepo={handleClearRepo}
         />
       </Animated>
+
+      {/* GitHub Repository Selection Modal */}
+      <GitHubRepoModal
+        isOpen={isGitHubModalOpen}
+        onClose={() => setIsGitHubModalOpen(false)}
+        onSelectRepo={handleGitHubImport}
+      />
 
       {/* Quick action buttons */}
       <Animated animation="fade-in-up" delay={400}>
