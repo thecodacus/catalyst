@@ -1,6 +1,6 @@
-# Qwen Code Web
+# Catalyst Web
 
-This is a full-stack Next.js application for Qwen Code Web, providing both the frontend interface and backend API for AI-powered code assistance with cloud VMs.
+This is a full-stack Next.js application for Catalyst, providing both the frontend interface and backend API for AI-powered code assistance with cloud VMs.
 
 ## Features
 

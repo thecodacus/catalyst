@@ -60,7 +60,7 @@ export default function RegisterPage() {
         <CardHeader>
           <CardTitle className="text-2xl">Sign Up</CardTitle>
           <CardDescription>
-            Create your account to start using Qwen Code
+            Create your account to start using Catalyst
           </CardDescription>
         </CardHeader>
         <CardContent>

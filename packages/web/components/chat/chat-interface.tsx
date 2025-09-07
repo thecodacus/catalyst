@@ -1,15 +1,16 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Send, Loader2, Square } from 'lucide-react';
+import { Loader2, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { TaskCard, ToolCallDisplay } from './message-parts';
 import { ITask } from '@/lib/db/schemas/task';
 import { apiClient } from '@/lib/api/client';
 import { toast } from 'sonner';
 import { Response } from '@/components/response';
+import { CatalystPromptInput } from '@/components/catalyst-prompt-input';
 
 // Message part types following Vercel AI SDK pattern
 type MessagePart =
@@ -52,9 +53,11 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [activeTasks, setActiveTasks] = useState<ITask[]>([]);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+  const [shouldAutoSubmit, setShouldAutoSubmit] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const searchParams = useSearchParams();
+  const initialQueryProcessed = useRef(false);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -63,6 +66,25 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  // Handle initial query from URL
+  useEffect(() => {
+    const queryParam = searchParams.get('q');
+    if (queryParam && messages.length === 0 && !isLoadingHistory && !initialQueryProcessed.current) {
+      initialQueryProcessed.current = true;
+      setInput(queryParam);
+      setShouldAutoSubmit(true);
+    }
+  }, [searchParams, messages.length, isLoadingHistory]);
+
+  // Auto-submit when ready
+  useEffect(() => {
+    if (shouldAutoSubmit && !isLoadingHistory && !isLoading && input.trim()) {
+      setShouldAutoSubmit(false);
+      // Directly call handleSubmit with the input
+      handleSubmit(input.trim());
+    }
+  }, [shouldAutoSubmit, isLoadingHistory, isLoading, input]);
 
   // Fetch conversation history on mount
   useEffect(() => {
@@ -212,15 +234,15 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
+  const handleSubmit = async (submittedQuery?: string) => {
+    const query = submittedQuery || input.trim();
+    if (!query || isLoading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
-      content: input.trim(),
-      parts: [{ type: 'text', text: input.trim() }],
+      content: query,
+      parts: [{ type: 'text', text: query }],
       timestamp: new Date(),
       metadata: { projectId },
     };
@@ -252,7 +274,7 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
 
     try {
       // Use streaming API with abort signal
-      await apiClient.sendMessageStream(projectId, input.trim(), (event) => {
+      await apiClient.sendMessageStream(projectId, query, (event) => {
         // Event type is now properly included in the event object
         switch (event.type) {
           case 'user_message':
@@ -262,11 +284,11 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
           case 'ai_start':
             // Update with task ID if provided
             if (event.taskId) {
-              setCurrentTaskId(event.taskId);
+              setCurrentTaskId(event.taskId as string);
               setMessages((prev) =>
                 prev.map((msg) =>
                   msg.id === aiMessageId
-                    ? { ...msg, metadata: { ...msg.metadata, taskId: event.taskId } }
+                    ? { ...msg, metadata: { ...msg.metadata, taskId: event.taskId as string } }
                     : msg
                 )
               );
@@ -313,9 +335,9 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
             
             // Add the tool call
             const toolCall: ToolCall = {
-              id: event.callId,
-              tool: event.tool,
-              params: event.params || {},
+              id: event.callId as string,
+              tool: event.tool as string,
+              params: (event.params as Record<string, unknown>) || {},
               status: 'running',
             };
             messageParts.push({ type: 'tool-call', toolCall });
@@ -433,7 +455,7 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
                 msg.id === aiMessageId
                   ? {
                       ...msg,
-                      id: event.messageId || msg.id,
+                      id: (event.messageId as string) || msg.id,
                       content: messageParts
                         .filter(p => p.type === 'text')
                         .map(p => p.text)
@@ -450,14 +472,14 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
           
           case 'error':
             console.error('Streaming error:', event);
-            toast.error(event.message || 'Failed to process message');
+            toast.error((event.message as string) || 'Failed to process message');
             setIsLoading(false);
             break;
         }
       }, abortController.signal);
-    } catch (error: any) {
+    } catch (error) {
       // Check if it's an abort error
-      if (error?.name === 'AbortError') {
+      if (error && typeof error === 'object' && 'name' in error && error.name === 'AbortError') {
         console.log('Request was aborted');
         // Already handled in handleInterrupt
         return;
@@ -486,13 +508,6 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
       setMessages((prev) => [...prev, fallbackMessage]);
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e);
     }
   };
 
@@ -553,43 +568,49 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col bg-transparent">
       {/* Active tasks banner */}
       {activeTasks.length > 0 && (
-        <div className="border-b bg-muted/30 px-4 py-2 flex-shrink-0">
-          <p className="text-xs text-muted-foreground">
-            {activeTasks.length} active task{activeTasks.length > 1 ? 's' : ''}{' '}
-            running
-          </p>
+        <div className="mx-auto w-full max-w-3xl px-6 py-2">
+          <div className="rounded-full bg-indigo-500/10 dark:bg-indigo-400/10 px-4 py-2 inline-flex items-center gap-2">
+            <div className="h-2 w-2 rounded-full bg-indigo-500 dark:bg-indigo-400 animate-pulse" />
+            <p className="text-xs text-indigo-700 dark:text-indigo-300">
+              {activeTasks.length} active task{activeTasks.length > 1 ? 's' : ''} running
+            </p>
+          </div>
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 min-h-0">
+      <div className="flex-1 overflow-y-auto py-8 px-6 space-y-6 min-h-0">
         {isLoadingHistory ? (
           <div className="flex h-full items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : messages.length === 0 ? (
           <div className="flex h-full items-center justify-center">
-            <p className="text-muted-foreground">
-              Start a conversation to begin coding with AI assistance
-            </p>
+            <div className="text-center space-y-4">
+              <div className="text-6xl">💭</div>
+              <p className="text-gray-500 dark:text-gray-400 text-lg">
+                Start a conversation to begin coding with AI assistance
+              </p>
+            </div>
           </div>
         ) : (
-          messages.map((message) => (
-            <div
-              key={message.id}
-              className={cn(
-                'flex',
-                message.role === 'user' ? 'justify-end' : 'justify-start',
-              )}
-            >
+          <div className="mx-auto max-w-3xl space-y-6">
+            {messages.map((message) => (
               <div
+                key={message.id}
                 className={cn(
-                  'max-w-[80%] space-y-2',
-                  message.role === 'user' && 'items-end',
+                  'flex',
+                  message.role === 'user' ? 'justify-end' : 'justify-start',
                 )}
               >
+                <div
+                  className={cn(
+                    'max-w-[85%] space-y-3',
+                    message.role === 'user' && 'items-end',
+                  )}
+                >
                 {/* Render message parts if available, otherwise fall back to content */}
                 {message.parts && message.parts.length > 0 ? (
                   message.parts.map((part, index) => {
@@ -599,10 +620,10 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
                         <div
                           key={index}
                           className={cn(
-                            'rounded-lg px-4 py-2',
+                            'rounded-2xl px-5 py-3 shadow-sm',
                             message.role === 'user'
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted',
+                              ? 'bg-indigo-500 text-white'
+                              : 'bg-white dark:bg-gray-800 border border-gray-200/50 dark:border-gray-700/50',
                           )}
                         >
                           {renderMessagePart(part, index)}
@@ -619,62 +640,67 @@ export function ChatInterface({ projectId }: ChatInterfaceProps) {
                 ) : (
                   <div
                     className={cn(
-                      'rounded-lg px-4 py-2',
+                      'rounded-2xl px-5 py-3 shadow-sm',
                       message.role === 'user'
-                        ? 'bg-primary text-primary-foreground'
-                        : 'bg-muted',
+                        ? 'bg-indigo-500 text-white'
+                        : 'bg-white dark:bg-gray-800 border border-gray-200/50 dark:border-gray-700/50',
                     )}
                   >
                     <Response>{message.content}</Response>
                   </div>
                 )}
+                </div>
               </div>
-            </div>
-          ))
+            ))
+          }</div>
         )}
         {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-muted rounded-lg px-4 py-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
+          <div className="mx-auto max-w-3xl">
+            <div className="flex justify-start">
+              <div className="bg-white dark:bg-gray-800 border border-gray-200/50 dark:border-gray-700/50 rounded-2xl px-5 py-3 shadow-sm">
+                <Loader2 className="h-4 w-4 animate-spin text-indigo-500 dark:text-indigo-400" />
+              </div>
             </div>
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
-      <form onSubmit={handleSubmit} className="border-t p-4 flex-shrink-0">
-        <div className="flex gap-2">
-          <Textarea
-            ref={textareaRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask AI to help with your code..."
-            className="min-h-[80px] resize-none"
-            disabled={isLoading}
-          />
-          <div className="flex flex-col gap-2">
-            <Button
-              type="submit"
-              disabled={!input.trim() || isLoading}
-              size="icon"
-            >
-              <Send className="h-4 w-4" />
-            </Button>
-            {isLoading && currentTaskId && (
-              <Button
-                type="button"
-                onClick={handleInterrupt}
-                size="icon"
-                variant="destructive"
-                title="Stop AI processing"
-              >
-                <Square className="h-4 w-4" />
-              </Button>
-            )}
+      <div className="flex-shrink-0 px-6 pb-6 pt-4">
+        <div className="mx-auto max-w-3xl">
+          <div className="relative">
+            {/* Floating effect shadow */}
+            <div className="absolute -inset-1 bg-gradient-to-r from-indigo-500/20 to-indigo-400/20 rounded-2xl blur-lg opacity-30" />
+            
+            <div className="relative flex gap-3 items-end">
+              <div className="flex-1">
+                <CatalystPromptInput
+                  value={input}
+                  onChange={setInput}
+                  onSubmit={handleSubmit}
+                  placeholder="Ask AI to help with your code..."
+                  disabled={isLoading}
+                  isLoading={isLoading}
+                  minHeight="60px"
+                  className="shadow-lg"
+                />
+              </div>
+              {isLoading && currentTaskId && (
+                <Button
+                  type="button"
+                  onClick={handleInterrupt}
+                  size="icon"
+                  variant="destructive"
+                  title="Stop AI processing"
+                  className="mb-2 shadow-lg"
+                >
+                  <Square className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

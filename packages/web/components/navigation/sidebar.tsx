@@ -31,7 +31,7 @@ export function Sidebar() {
   return (
     <div className="flex h-full w-64 flex-col border-r bg-background">
       <div className="p-6">
-        <h1 className="text-2xl font-bold">Qwen Code</h1>
+        <h1 className="text-2xl font-bold">Catalyst</h1>
       </div>
 
       <div className="flex-1 px-3">
