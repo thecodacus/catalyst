@@ -49,16 +49,22 @@ const messageSchema = new Schema<IMessage>(
       type: String,
       required: true,
     },
-    parts: [
-      {
-        type: {
-          type: String,
-          enum: ['text', 'task', 'tool-call', 'file', 'code'],
-          required: true,
+    parts: {
+      type: [
+        {
+          type: {
+            type: String,
+            enum: ['text', 'task', 'tool-call', 'file', 'code'],
+            required: true,
+          },
+          data: {
+            type: Schema.Types.Mixed,
+            default: undefined
+          },
         },
-        data: Schema.Types.Mixed,
-      },
-    ],
+      ],
+      default: []
+    },
     taskId: {
       type: String,
       index: true,

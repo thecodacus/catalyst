@@ -87,7 +87,7 @@ export class CodeSandboxService {
 
         // Get sandbox info from CodeSandbox
         const sandboxInfo = await this.sdk.sandboxes.get(dbSession.sandboxId);
-        console.log(`Sandbox status: ${sandboxInfo.status}`);
+        console.log(`Sandbox id: ${sandboxInfo.id}`);
 
         // Resume or wake up the sandbox if needed
         const sandbox = await this.sdk.sandboxes.resume(dbSession.sandboxId);
@@ -102,7 +102,7 @@ export class CodeSandboxService {
                 email: gitConfig.email,
                 name: gitConfig.name,
                 accessToken: gitConfig.accessToken,
-                provider: gitConfig.provider,
+                provider: gitConfig.provider || 'github',
               },
             })
           : await sandbox.connect({ id: sessionId });
@@ -160,7 +160,7 @@ export class CodeSandboxService {
             email: gitConfig.email,
             name: gitConfig.name,
             accessToken: gitConfig.accessToken,
-            provider: gitConfig.provider,
+            provider: gitConfig.provider || 'github',
           },
         })
       : await sandbox.connect({ id: sessionId });
@@ -174,24 +174,44 @@ export class CodeSandboxService {
       lastAccessedAt: new Date(),
     });
 
-    // Save session to database
-    await SandboxSession.create({
-      projectId,
-      sandboxId: sandbox.id,
-      status: 'active',
-      vmTier: VMTier.Pico,
-      metadata: {
-        title: `Project ${projectId}`,
-        templateId: this.config.templateId,
-      },
-    });
+    // Save session to database - use upsert to handle existing records
+    try {
+      await SandboxSession.findOneAndUpdate(
+        { projectId },
+        {
+          sandboxId: sandbox.id,
+          status: 'active',
+          vmTier: VMTier.Pico,
+          metadata: {
+            title: `Project ${projectId}`,
+            templateId: this.config.templateId,
+          },
+          createdAt: new Date(),
+          lastAccessedAt: new Date(),
+        },
+        { upsert: true, new: true }
+      );
 
-    console.log(
-      `✅ Saved sandbox session to database for project ${projectId}`,
-    );
+      console.log(
+        `✅ Saved sandbox session to database for project ${projectId}`,
+      );
+    } catch (dbError) {
+      console.error('Failed to save sandbox session to database:', dbError);
+      // Continue anyway - the sandbox is created and working
+    }
 
     // Initialize the sandbox with a basic structure
-    await this.initializeSandbox(client, gitConfig?.repoUrl, gitConfig);
+    try {
+      await this.initializeSandbox(client, gitConfig?.repoUrl, gitConfig);
+    } catch (initError) {
+      console.error('Failed to initialize sandbox structure:', initError);
+      // Try to at least create the repo directory
+      try {
+        await client.fs.mkdir('./repo', true);
+      } catch {
+        console.log('Could not create repo directory');
+      }
+    }
 
     return { sandbox, client };
   }
@@ -273,10 +293,24 @@ export class CodeSandboxService {
    * Create default project structure
    */
   private async createDefaultStructure(client: SandboxClient): Promise<void> {
-    // Create repo directory
-    await client.fs.mkdir('./repo', true);
-    await client.fs.mkdir('./repo/src', true);
-    await client.fs.mkdir('./repo/tests', true);
+    try {
+      // Create repo directory
+      await client.fs.mkdir('./repo', true);
+      await client.fs.mkdir('./repo/src', true);
+      await client.fs.mkdir('./repo/tests', true);
+    } catch (error) {
+      console.error('Error creating directory structure:', error);
+      // Try alternative approach - create directories one by one
+      try {
+        await client.fs.mkdir('./repo');
+      } catch {}
+      try {
+        await client.fs.mkdir('./repo/src');
+      } catch {}
+      try {
+        await client.fs.mkdir('./repo/tests');
+      } catch {}
+    }
 
     // Create a simple package.json in repo
     const packageJson = {
@@ -337,15 +371,22 @@ export class CodeSandboxService {
     const fullCommand = `${command}`;
 
     if (background) {
-      const result = await client.commands.runBackground(fullCommand, {
+      const command = await client.commands.runBackground(fullCommand, {
         cwd: SANDBOX_REPO_PATH,
         env: {
           GIT_DIR: `${SANDBOX_REPO_PATH}/.git`,
           GIT_WORK_TREE: `${SANDBOX_REPO_PATH}`,
         },
       });
+      
+      // If output callback provided, set up listener for background process
+      if (onOutput) {
+        command.onOutput((output) => {
+          onOutput(output);
+        });
+      }
 
-      return result.status || '';
+      return 'Background process started';
     } else {
       const command = await client.commands.runBackground(fullCommand, {
         cwd: SANDBOX_REPO_PATH,
@@ -427,7 +468,27 @@ export class CodeSandboxService {
     const relativePath = this.convertToRepoPath(path);
 
     try {
-      const entries = await client.fs.readdir(relativePath);
+      // First ensure the base repo directory exists
+      if (relativePath === './repo' || relativePath === './repo/') {
+        try {
+          // Create the repo directory if it doesn't exist
+          await client.fs.mkdir('./repo', true);
+        } catch (mkdirError) {
+          console.log('mkdir error (expected if dir exists):', mkdirError);
+        }
+      }
+
+      let entries;
+      try {
+        entries = await client.fs.readdir(relativePath);
+      } catch (readError) {
+        console.error(`Failed to read directory ${relativePath}:`, readError);
+        // If the directory doesn't exist, return empty array
+        if ((readError as Error).message?.includes('No such file or directory')) {
+          return [];
+        }
+        throw readError;
+      }
 
       // Format entries with type prefix (d for directory, f for file)
       const formattedEntries: string[] = [];

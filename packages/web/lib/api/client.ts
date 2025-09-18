@@ -89,7 +89,19 @@ class ApiClient {
     return response.data;
   }
 
-  async createProject(data: { name: string; description?: string }) {
+  async createProject(data: { 
+    name: string; 
+    description?: string;
+    createGitRepo?: boolean;
+    git?: {
+      provider: 'github' | 'gitlab' | 'bitbucket';
+      repoUrl: string;
+      repoName: string;
+      repoOwner: string;
+      branch?: string;
+      isPrivate: boolean;
+    };
+  }) {
     const response = await this.client.post('/projects', data);
     return response.data;
   }

@@ -7,6 +7,7 @@ import {
   SANDBOX_REPO_RELATIVE,
   toSandboxPath,
 } from '@/lib/constants/sandbox-paths';
+import { toast } from 'sonner';
 
 // Dynamic import for client-side only
 interface IframeClientInstance {
@@ -49,10 +50,12 @@ export function useSandboxClient({
   const [client, setClient] = useState<SandboxClient | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [previewUrls, setPreviewUrls] = useState<Map<number, PreviewUrl>>(new Map());
+  const [previewUrls, setPreviewUrls] = useState<Map<number, PreviewUrl>>(
+    new Map(),
+  );
 
   // Initialize the sandbox client
-  const portListenersRef = useRef<{ 
+  const portListenersRef = useRef<{
     openListener?: { dispose: () => void };
     closeListener?: { dispose: () => void };
   }>({});
@@ -86,33 +89,66 @@ export function useSandboxClient({
         console.log('✅ Connected to CodeSandbox VM');
 
         // Set up port monitoring
-        portListenersRef.current.openListener = sandboxClient.ports.onDidPortOpen((portInfo) => {
-          console.log(`Port ${portInfo.port} opened`);
-          const url = sandboxClient.hosts.getUrl(portInfo.port);
-          setPreviewUrls((prev) => {
-            const newMap = new Map(prev);
-            newMap.set(portInfo.port, { port: portInfo.port, url });
-            return newMap;
-          });
-        });
+        console.log('🔌 Setting up port monitoring for sandbox');
 
-        portListenersRef.current.closeListener = sandboxClient.ports.onDidPortClose((port) => {
-          console.log(`Port ${port} closed`);
-          setPreviewUrls((prev) => {
-            const newMap = new Map(prev);
-            newMap.delete(port);
-            return newMap;
+        portListenersRef.current.openListener =
+          sandboxClient.ports.onDidPortOpen((portInfo) => {
+            console.log(`🟢 Port ${portInfo.port} opened`, portInfo);
+            const url = sandboxClient.hosts.getUrl(portInfo.port);
+            console.log(
+              `🔗 Generated preview URL for port ${portInfo.port}: ${url}`,
+            );
+
+            // Show toast notification
+            toast.success(`Dev server detected on port ${portInfo.port}`, {
+              description: 'Preview panel will open automatically',
+              duration: 3000,
+            });
+
+            setPreviewUrls((prev) => {
+              const newMap = new Map(prev);
+              newMap.set(portInfo.port, { port: portInfo.port, url });
+              console.log(
+                `📊 Updated preview URLs map:`,
+                Array.from(newMap.entries()),
+              );
+              return newMap;
+            });
           });
-        });
+
+        portListenersRef.current.closeListener =
+          sandboxClient.ports.onDidPortClose((port) => {
+            console.log(`🔴 Port ${port} closed`);
+            setPreviewUrls((prev) => {
+              const newMap = new Map(prev);
+              newMap.delete(port);
+              console.log(
+                `📊 Updated preview URLs map after close:`,
+                Array.from(newMap.entries()),
+              );
+              return newMap;
+            });
+          });
 
         // Get initially opened ports
+        console.log('🔍 Checking for initially opened ports...');
         const openPorts = await sandboxClient.ports.getAll();
+        console.log(
+          `📋 Found ${openPorts.length} initially open ports:`,
+          openPorts,
+        );
+
         const initialUrls = new Map<number, PreviewUrl>();
         for (const portInfo of openPorts) {
           const url = sandboxClient.hosts.getUrl(portInfo.port);
+          console.log(`🔗 Initial port ${portInfo.port} -> ${url}`);
           initialUrls.set(portInfo.port, { port: portInfo.port, url });
         }
         if (initialUrls.size > 0) {
+          console.log(
+            `📊 Setting initial preview URLs:`,
+            Array.from(initialUrls.entries()),
+          );
           setPreviewUrls(initialUrls);
         }
       } catch (err) {
@@ -134,7 +170,7 @@ export function useSandboxClient({
     return () => {
       mounted = false;
       setClient(null);
-      
+
       // Clean up port listeners
       if (portListenersRef.current.openListener) {
         portListenersRef.current.openListener.dispose();
@@ -143,7 +179,7 @@ export function useSandboxClient({
         portListenersRef.current.closeListener.dispose();
       }
       portListenersRef.current = {};
-      
+
       // Clear preview URLs
       setPreviewUrls(new Map());
     };
@@ -272,21 +308,26 @@ export function useSandboxClient({
   } = useFileCacheStore();
 
   const waitForPort = useCallback(
-    async (port: number, timeout: number = 30000): Promise<PreviewUrl | null> => {
+    async (
+      port: number,
+      timeout: number = 30000,
+    ): Promise<PreviewUrl | null> => {
       if (!client) throw new Error('Sandbox client not initialized');
 
       try {
-        const portInfo = await client.ports.waitForPort(port, { timeout });
+        const portInfo = await client.ports.waitForPort(port, {
+          timeoutMs: timeout,
+        });
         const url = client.hosts.getUrl(portInfo.port);
         const preview = { port: portInfo.port, url };
-        
+
         // Update state with the new port
         setPreviewUrls((prev) => {
           const newMap = new Map(prev);
           newMap.set(portInfo.port, preview);
           return newMap;
         });
-        
+
         return preview;
       } catch (error) {
         console.error(`Timeout waiting for port ${port}:`, error);

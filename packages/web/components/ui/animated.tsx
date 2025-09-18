@@ -17,7 +17,7 @@ interface AnimatedProps extends HTMLAttributes<HTMLDivElement> {
 export const Animated = forwardRef<HTMLDivElement, AnimatedProps>(
   ({ children, animation = 'fade-in', delay = 0, duration, once = true, className, ...props }, ref) => {
     const elementRef = useRef<HTMLDivElement>(null);
-    const isInView = useInView(elementRef, { threshold: 0.1 });
+    const isInView = useInView(elementRef as React.RefObject<HTMLElement | null>, { threshold: 0.1 });
     const prefersReducedMotion = useReducedMotion();
 
     const animationClass = prefersReducedMotion ? '' : `animate-${animation}`;

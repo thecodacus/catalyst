@@ -23,6 +23,7 @@ import {
 } from '@/components/tool';
 import { Response } from '@/components/response';
 import { ShellCommandDisplay } from '@/components/shell-command-display';
+import { FileWriteDisplay } from '@/components/file-write-display';
 import { TodoDisplay } from '@/components/todo-display';
 
 interface TaskCardProps {
@@ -218,6 +219,7 @@ export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
     'run_shell_command',
   ].includes(toolCall.tool);
   const isTodoList = toolCall.tool === 'todo_write';
+  const isFileWrite = ['write_file', 'str_replace', 'str_replace_editor'].includes(toolCall.tool);
 
   // Debug logging
   console.log(
@@ -229,6 +231,10 @@ export function ToolCallDisplay({ toolCall }: ToolCallDisplayProps) {
 
   if (isShellCommand) {
     return <ShellCommandDisplay toolCall={toolCall} />;
+  }
+  
+  if (isFileWrite) {
+    return <FileWriteDisplay toolCall={toolCall} />;
   }
 
   // Map our status to Tool component states

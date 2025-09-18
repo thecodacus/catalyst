@@ -22,7 +22,7 @@ export function useReducedMotion() {
 
 // Custom hook for viewport-based animations
 export function useInView(
-  ref: React.RefObject<HTMLElement>,
+  ref: React.RefObject<HTMLElement | null>,
   options?: IntersectionObserverInit
 ) {
   const [isInView, setIsInView] = useState(false);

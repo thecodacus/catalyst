@@ -78,11 +78,14 @@ export default function GitHubRepoSelectionPage() {
       const project = await apiClient.createProject({
         name: selectedRepo.name,
         description: selectedRepo.description || `Imported from ${selectedRepo.full_name}`,
-        githubRepo: {
-          id: selectedRepo.id,
-          fullName: selectedRepo.full_name,
-          cloneUrl: selectedRepo.clone_url,
-          defaultBranch: selectedRepo.default_branch,
+        createGitRepo: false, // Don't create a new repo, we're importing an existing one
+        git: {
+          provider: 'github',
+          repoUrl: selectedRepo.clone_url,
+          repoName: selectedRepo.name,
+          repoOwner: selectedRepo.owner.login,
+          branch: selectedRepo.default_branch,
+          isPrivate: selectedRepo.private,
         },
       });
 

@@ -638,16 +638,54 @@ export class SandboxToolExecutor {
 
     console.log('🖥️ Sandbox bash tool - executing:', command);
 
-    // For background processes, just start and return
+    // For background processes, wait 5 seconds then push to background
     if (is_background) {
-      const output = await this.sandboxService.executeCommand(
+      console.log('⏳ Starting background process with 5 second initial wait...');
+      
+      // Start the command but collect output for first 5 seconds
+      let outputBuffer = '';
+      let initialOutputComplete = false;
+      
+      // Set up a promise that resolves after 5 seconds
+      const waitPromise = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          initialOutputComplete = true;
+          resolve();
+        }, 5000);
+      });
+      
+      // Start the command with output callback
+      const outputCollector = (chunk: string) => {
+        if (!initialOutputComplete) {
+          outputBuffer += chunk;
+          // If we have streaming callback, send initial output
+          if (this.outputStreamCallbacks.has(args.callId as string)) {
+            const callback = this.outputStreamCallbacks.get(args.callId as string);
+            if (callback) {
+              callback(chunk);
+            }
+          }
+        }
+      };
+      
+      // Execute command in background mode
+      const commandPromise = this.sandboxService.executeCommand(
         this.projectId,
         command,
         true,
+        outputCollector,
       );
+      
+      // Wait for 5 seconds to collect initial output
+      await waitPromise;
+      
+      console.log('✅ Background process started, initial output collected');
+      
       return {
-        content: [{ text: output || 'Background process started' }],
-        display: output,
+        content: [{ 
+          text: outputBuffer || 'Background process started successfully\n\nProcess is now running in background.' 
+        }],
+        display: outputBuffer || 'Background process started',
       };
     }
 

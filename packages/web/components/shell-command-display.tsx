@@ -107,7 +107,7 @@ export function ShellCommandDisplay({ toolCall }: ShellCommandDisplayProps) {
               </p>
             </div>
           )}
-          <pre className="rounded bg-gray-950 dark:bg-gray-900 p-3 text-xs overflow-x-auto">
+          <pre className="rounded bg-gray-950 dark:bg-gray-900 p-3 text-xs overflow-x-auto max-h-[400px] overflow-y-auto">
             <code className="text-gray-100 dark:text-gray-200 font-mono whitespace-pre-wrap">
               {renderAnsiText(result)}
             </code>
@@ -118,7 +118,7 @@ export function ShellCommandDisplay({ toolCall }: ShellCommandDisplayProps) {
     
     // Default to JSON display for non-string results
     return (
-      <pre className="rounded bg-gray-950 dark:bg-gray-900 p-3 text-xs overflow-x-auto">
+      <pre className="rounded bg-gray-950 dark:bg-gray-900 p-3 text-xs overflow-x-auto max-h-[400px] overflow-y-auto">
         <code className="text-gray-100 dark:text-gray-200 font-mono">
           {JSON.stringify(result, null, 2)}
         </code>
@@ -200,33 +200,28 @@ export function ShellCommandDisplay({ toolCall }: ShellCommandDisplayProps) {
               {toolCall.status === 'failed' ? 'Error' : 'Output'}
             </h4>
             
-            {/* Show streaming output if available */}
-            {toolCall.streamingOutput && (
-              <div className="space-y-2">
+            {/* Show streaming output if available, or final result */}
+            {(toolCall.streamingOutput || toolCall.result !== undefined) && (
+              <>
                 {toolCall.status === 'running' && (
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" />
                     <span>Running...</span>
                   </div>
                 )}
-                <pre className="rounded bg-gray-950 dark:bg-gray-900 p-3 text-xs overflow-x-auto">
-                  <code className="text-gray-100 dark:text-gray-200 font-mono whitespace-pre-wrap">
-                    {renderAnsiText(toolCall.streamingOutput)}
-                  </code>
-                </pre>
-              </div>
-            )}
-            
-            {/* Show final result if different from streaming output */}
-            {toolCall.result !== undefined && (
-              <>
-                {toolCall.status === 'failed' && typeof toolCall.result === 'object' && toolCall.result !== null && 'error' in toolCall.result ? (
+                
+                {/* For shell commands, prefer streaming output over final result to avoid duplication */}
+                {toolCall.streamingOutput ? (
+                  <pre className="rounded bg-gray-950 dark:bg-gray-900 p-3 text-xs overflow-x-auto max-h-[400px] overflow-y-auto">
+                    <code className="text-gray-100 dark:text-gray-200 font-mono whitespace-pre-wrap">
+                      {renderAnsiText(toolCall.streamingOutput)}
+                    </code>
+                  </pre>
+                ) : toolCall.status === 'failed' && typeof toolCall.result === 'object' && toolCall.result !== null && 'error' in toolCall.result ? (
                   <div className="rounded bg-red-100 dark:bg-red-950/50 border border-red-200 dark:border-red-800 p-3 text-xs text-red-700 dark:text-red-300">
                     {(toolCall.result as { error: string }).error}
                   </div>
                 ) : (
-                  /* Only show final result if it's different from streaming output */
-                  (!toolCall.streamingOutput || (typeof toolCall.result === 'string' && toolCall.result !== toolCall.streamingOutput)) && 
                   formatResult(toolCall.result)
                 )}
               </>

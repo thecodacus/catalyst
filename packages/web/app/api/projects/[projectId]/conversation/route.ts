@@ -175,6 +175,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             controller.enqueue(encoder.encode(event));
           };
 
+          // Declare aiMessage outside try block so it's accessible in catch
+          let aiMessage: any;
+
           try {
             // Send user message event
             sendEvent(SSEEventType.UserMessage, { messageId: userMessage._id });
@@ -189,13 +192,103 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               isSandboxed: true,
               sandboxId: projectId, // We'll use projectId as the sandbox identifier
               // Pass user settings directly to AI service
-              provider: userSettings?.provider,
+              provider: userSettings?.provider as 'openai' | 'anthropic' | 'openrouter' | 'gemini' | 'custom' | undefined,
               apiKey: userSettings?.apiKey,
               model: userSettings?.model,
               customEndpoint: userSettings?.customEndpoint,
+              // Set temperature to 1.0 for OpenAI provider (it doesn't support 0)
+              temperature: userSettings?.provider === 'openai' ? 1.0 : 0.7,
             };
 
             const aiService = await getAIService(aiConfig);
+            
+            // Load conversation history
+            const previousMessages = await Message.find({ 
+              projectId,
+              createdAt: { $lt: userMessage.createdAt }
+            })
+              .sort({ createdAt: 1 })
+              .limit(50); // Limit to last 50 messages to avoid context overflow
+            
+            // Convert messages to Content[] format for GeminiClient
+            const history: any[] = [];
+            
+            for (const msg of previousMessages) {
+              const content: any = {
+                role: msg.role === 'user' ? 'user' : 'model',
+                parts: []
+              };
+              
+              // Add parts in order if they exist
+              if (msg.parts && msg.parts.length > 0) {
+                // Process parts in the order they were saved
+                for (const part of msg.parts) {
+                  if (part.type === 'text' && part.data) {
+                    // Add all text parts, not just those different from content
+                    content.parts.push({ text: part.data as string });
+                  } else if (part.type === 'tool-call') {
+                    // Add function call
+                    content.parts.push({
+                      functionCall: {
+                        name: (part.data as any).tool,
+                        args: (part.data as any).params || {}
+                      }
+                    });
+                    // Add function response immediately after if completed
+                    if ((part.data as any).status === 'completed' && (part.data as any).result) {
+                      content.parts.push({
+                        functionResponse: {
+                          name: (part.data as any).tool,
+                          response: {
+                            output: (part.data as any).result
+                          }
+                        }
+                      });
+                    }
+                  }
+                }
+              } else if (msg.content && msg.content !== '...') {
+                // If no parts but has content, use the content
+                content.parts.push({ text: msg.content });
+              }
+              
+              // Only add if there are parts
+              if (content.parts.length > 0) {
+                history.push(content);
+              }
+            }
+            
+            // Set history on the AI service
+            if (history.length > 0) {
+              console.log(`📚 Loading ${history.length} messages into AI context for project ${projectId}`);
+              
+              // Debug: Log the last few messages to see their structure
+              if (previousMessages.length > 0) {
+                const lastMsg = previousMessages[previousMessages.length - 1];
+                console.log('Last message from DB:', {
+                  id: lastMsg._id,
+                  role: lastMsg.role,
+                  contentLength: lastMsg.content?.length || 0,
+                  partsCount: lastMsg.parts?.length || 0,
+                  parts: lastMsg.parts?.map((p: any) => ({
+                    type: p.type,
+                    dataPreview: p.type === 'text' ? 
+                      `${(p.data as string || '').substring(0, 30)}...` : 
+                      p.type === 'tool-call' ? 
+                      `${p.data.tool} (${p.data.status})` : 
+                      'other'
+                  }))
+                });
+              }
+              
+              try {
+                aiService.geminiClient.setHistory(history);
+              } catch (historyError) {
+                console.error('Failed to set conversation history:', historyError);
+                // Continue without history rather than failing entirely
+              }
+            }
+            
             // Create initial task
             const task = new Task({
               projectId: projectId,
@@ -246,8 +339,30 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             // Use the streaming API with manual tool execution
             const pendingToolCalls: ToolCallRequestInfo[] = [];
 
-            // Send AI start event
-            sendEvent(SSEEventType.AIStart, { taskId: task._id });
+            // Create AI message early for progressive updates
+            aiMessage = new Message({
+              projectId,
+              userId: user.userId,
+              role: 'assistant',
+              content: '...', // Use placeholder to avoid validation error
+              parts: [],
+              taskId: task._id.toString(),
+              parentMessageId: userMessage._id.toString(),
+              metadata: {
+                model: aiConfig.model,
+                tokenCount: 0,
+                toolCalls: 0,
+                toolResponses: 0,
+                hasTask: true,
+              },
+            });
+            await aiMessage.save();
+
+            // Send AI start event with message ID
+            sendEvent(SSEEventType.AIStart, { 
+              taskId: task._id,
+              messageId: aiMessage._id 
+            });
 
             await aiService.sendMessage(message, projectId, async (event) => {
               switch (event.type) {
@@ -256,17 +371,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                   currentTextBuffer += event.value;
                   responseChunks.push(event.value);
 
-                  // Send content update event
+                  // Send content update event for streaming
                   sendEvent(SSEEventType.AIContent, { content: event.value });
                   break;
 
                 case GeminiEventType.ToolCallRequest:
-                  // Save any buffered text as an event
+                  // Save any buffered text as an event and to message
                   if (currentTextBuffer) {
                     conversationEvents.push({
                       type: 'text',
                       content: currentTextBuffer,
                     });
+                    
+                    // Update message content and parts with complete text segment
+                    if (aiMessage.content === '...') {
+                      aiMessage.content = currentTextBuffer;
+                    } else {
+                      aiMessage.content += currentTextBuffer;
+                    }
+                    aiMessage.parts.push({ type: 'text', data: currentTextBuffer });
+                    aiMessage.markModified('parts');
+                    aiMessage.metadata.tokenCount = aiMessage.content.length;
+                    await aiMessage.save();
+                    
                     currentTextBuffer = '';
                   }
 
@@ -277,6 +404,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                   });
                   pendingToolCalls.push(event.value);
                   allToolCalls.push(event.value);
+
+                  // Update message with tool call
+                  aiMessage.parts.push({
+                    type: 'tool-call',
+                    data: {
+                      id: event.value.callId,
+                      tool: event.value.name,
+                      params: event.value.args,
+                      status: 'pending',
+                    },
+                  });
+                  aiMessage.markModified('parts');
+                  aiMessage.metadata.toolCalls = allToolCalls.length;
+                  await aiMessage.save();
 
                   // Send tool call start event with parameters
                   sendEvent(SSEEventType.ToolCallStart, {
@@ -297,6 +438,18 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 type: 'text',
                 content: currentTextBuffer,
               });
+              
+              // Update message content and parts with final text segment
+              if (aiMessage.content === '...') {
+                aiMessage.content = currentTextBuffer;
+              } else {
+                aiMessage.content += currentTextBuffer;
+              }
+              aiMessage.parts.push({ type: 'text', data: currentTextBuffer });
+              aiMessage.markModified('parts');
+              aiMessage.metadata.tokenCount = aiMessage.content.length;
+              await aiMessage.save();
+              
               currentTextBuffer = '';
             }
 
@@ -342,6 +495,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                   );
 
                   // Set up streaming callback for bash commands
+                  console.log(`🔧 Setting up tool execution for ${toolCall.name}`);
                   if (['bash', 'run_bash_command', 'run_shell_command'].includes(toolCall.name)) {
                     executor.setOutputStreamCallback(toolCall.callId, (chunk: string) => {
                       // Stream bash output directly to the client
@@ -354,6 +508,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                   }
 
                   const toolResponse = await executor.executeToolCall(toolCall);
+                  console.log(`✅ Tool execution completed for ${toolCall.name}:`, {
+                    callId: toolCall.callId,
+                    hasResponseParts: !!toolResponse.responseParts,
+                    hasResultDisplay: !!toolResponse.resultDisplay,
+                    error: !!toolResponse.error
+                  });
                   allToolResponses.push(toolResponse);
 
                   // Update task with result
@@ -410,9 +570,50 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                       'text' in toolResponse.responseParts[0]
                         ? toolResponse.responseParts[0].text
                         : '';
-                    conversationEvents[successToolCallIndex].toolCall!.result =
+                    (conversationEvents[successToolCallIndex].toolCall as any).result =
                       responseText;
                   }
+
+                  // Update message with tool response
+                  console.log(`🔍 Looking for tool call ${toolCall.callId} in message parts:`, 
+                    aiMessage.parts.map((p: any) => ({
+                      type: p.type,
+                      id: p.type === 'tool-call' ? p.data?.id : 'n/a'
+                    }))
+                  );
+                  
+                  const toolCallPartIndex = aiMessage.parts.findIndex(
+                    (part: any) =>
+                      part.type === 'tool-call' &&
+                      part.data.id === toolCall.callId,
+                  );
+                  
+                  console.log(`🔍 Tool call part index: ${toolCallPartIndex}`);
+                  
+                  if (toolCallPartIndex !== -1) {
+                    // Update the tool call part
+                    (aiMessage.parts[toolCallPartIndex] as any).data.status = 'completed';
+                    (aiMessage.parts[toolCallPartIndex] as any).data.result = toolResponse.resultDisplay || outputText;
+                    
+                    // Mark the parts array as modified for Mongoose
+                    aiMessage.markModified('parts');
+                    
+                    // Debug log what we're storing
+                    const resultValue = toolResponse.resultDisplay || outputText;
+                    console.log(`💾 Storing tool response for ${toolCall.name}:`, {
+                      callId: toolCall.callId,
+                      status: 'completed',
+                      resultType: toolResponse.resultDisplay ? 'resultDisplay' : 'outputText',
+                      resultPreview: typeof resultValue === 'string' ? 
+                        resultValue.substring(0, 100) + '...' : 
+                        typeof resultValue === 'object' ? 'object' : 'unknown',
+                      fullPart: (aiMessage.parts[toolCallPartIndex] as any).data
+                    });
+                  } else {
+                    console.log(`⚠️ Tool call part not found for ${toolCall.name} (${toolCall.callId})`);
+                  }
+                  aiMessage.metadata.toolResponses = allToolResponses.length;
+                  await aiMessage.save();
 
                   // Send tool call end event with result
                   sendEvent(SSEEventType.ToolCallEnd, {
@@ -477,13 +678,29 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                     errorToolCallIndex !== -1 &&
                     conversationEvents[errorToolCallIndex].toolCall
                   ) {
-                    conversationEvents[errorToolCallIndex].toolCall!.result = {
+                    (conversationEvents[errorToolCallIndex].toolCall as any).result = {
                       error:
                         error instanceof Error
                           ? error.message
                           : 'Unknown error',
                     };
                   }
+
+                  // Update message with tool error
+                  const errorToolCallPartIndex = aiMessage.parts.findIndex(
+                    (part: any) =>
+                      part.type === 'tool-call' &&
+                      part.data.id === toolCall.callId,
+                  );
+                  if (errorToolCallPartIndex !== -1) {
+                    (aiMessage.parts[errorToolCallPartIndex] as any).data.status = 'failed';
+                    (aiMessage.parts[errorToolCallPartIndex] as any).data.error = error instanceof Error ? error.message : 'Unknown error';
+                    // Also store error as result for consistency
+                    (aiMessage.parts[errorToolCallPartIndex] as any).data.result = error instanceof Error ? error.message : 'Unknown error';
+                    // Mark as modified for Mongoose
+                    aiMessage.markModified('parts');
+                  }
+                  await aiMessage.save();
 
                   // Send tool call end event for error
                   sendEvent(SSEEventType.ToolCallEnd, {
@@ -503,9 +720,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                 async (event) => {
                   switch (event.type) {
                     case GeminiEventType.Content:
+                      // Buffer continuation text
+                      currentTextBuffer += event.value;
                       responseChunks.push(event.value);
-                      // We don't add to conversationEvents here because we'll handle
-                      // all remaining text at the end
                       // Send content update event
                       sendEvent(SSEEventType.AIContent, {
                         content: event.value,
@@ -513,6 +730,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                       break;
 
                     case GeminiEventType.ToolCallRequest:
+                      // Save any buffered text as an event and to message
+                      if (currentTextBuffer) {
+                        conversationEvents.push({
+                          type: 'text',
+                          content: currentTextBuffer,
+                        });
+                        
+                        // Update message with continuation text
+                        aiMessage.parts.push({ type: 'text', data: currentTextBuffer });
+                        aiMessage.markModified('parts');
+                        aiMessage.metadata.tokenCount = aiMessage.content.length;
+                        await aiMessage.save();
+                        
+                        currentTextBuffer = '';
+                      }
+                      
                       // Queue up any new tool calls
                       pendingToolCalls.push(event.value);
                       allToolCalls.push(event.value);
@@ -522,6 +755,20 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                         type: 'tool_call',
                         toolCall: event.value,
                       });
+
+                      // Update message with tool call
+                      aiMessage.parts.push({
+                        type: 'tool-call',
+                        data: {
+                          id: event.value.callId,
+                          tool: event.value.name,
+                          params: event.value.args,
+                          status: 'pending',
+                        },
+                      });
+                      aiMessage.markModified('parts');
+                      aiMessage.metadata.toolCalls = allToolCalls.length;
+                      await aiMessage.save();
 
                       // Send tool call start event with parameters
                       sendEvent(SSEEventType.ToolCallStart, {
@@ -537,6 +784,22 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
                   }
                 },
               );
+            }
+
+            // Save any remaining buffered text from continuation
+            if (currentTextBuffer) {
+              conversationEvents.push({
+                type: 'text',
+                content: currentTextBuffer,
+              });
+              
+              // Update message with final continuation text
+              aiMessage.parts.push({ type: 'text', data: currentTextBuffer });
+              aiMessage.markModified('parts');
+              aiMessage.metadata.tokenCount = aiMessage.content.length;
+              await aiMessage.save();
+              
+              currentTextBuffer = '';
             }
 
             const response = responseChunks.join('');
@@ -563,61 +826,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
             });
             await finalTask.save();
 
-            // Create message parts in the correct order from conversation events
-            const messageParts = [];
-            let fullContent = '';
-
-            // Add text before tool responses (collected during initial response)
-            conversationEvents.forEach((event) => {
-              if (event.type === 'text') {
-                fullContent += event.content || '';
-                messageParts.push({
-                  type: 'text',
-                  data: event.content || '',
-                });
-              } else if (event.type === 'tool_call' && event.toolCall) {
-                messageParts.push({
-                  type: 'tool-call',
-                  data: {
-                    id: event.toolCall.callId,
-                    tool: event.toolCall.name,
-                    params: event.toolCall.args,
-                    status: 'completed',
-                    result: event.toolCall.result, // Include the result we set earlier
-                  },
-                });
-              }
+            // Update final message state
+            // The message has been saved progressively, now just update final metadata
+            aiMessage.content = response;
+            aiMessage.taskId = finalTask._id.toString();
+            aiMessage.metadata.tokenCount = response.length;
+            aiMessage.metadata.toolCalls = allToolCalls.length;
+            aiMessage.metadata.toolResponses = allToolResponses.length;
+            
+            // Debug: Log what we're saving
+            console.log(`📝 Final message structure for ${aiMessage._id}:`, {
+              partsCount: aiMessage.parts.length,
+              partTypes: aiMessage.parts.map((p: any) => ({
+                type: p.type,
+                hasData: !!p.data,
+                dataPreview: p.type === 'text' ? (p.data as string).substring(0, 50) + '...' : 
+                             p.type === 'tool-call' ? `${(p.data as any).tool} - ${(p.data as any).status}` : 
+                             'other'
+              }))
             });
-
-            // Add any remaining response chunks that came after tool calls
-            const remainingText = responseChunks
-              .join('')
-              .substring(fullContent.length);
-            if (remainingText) {
-              messageParts.push({
-                type: 'text',
-                data: remainingText,
-              });
-            }
-
-            // Create AI response message with ordered parts
-            const aiMessage = new Message({
-              projectId,
-              userId: user.userId,
-              role: 'assistant',
-              content: response,
-              parts: messageParts,
-              taskId: finalTask._id.toString(),
-              parentMessageId: userMessage._id.toString(),
-              metadata: {
-                model: aiConfig.model,
-                tokenCount: response.length, // Rough estimate
-                toolCalls: allToolCalls.length,
-                toolResponses: allToolResponses.length,
-                hasTask: true,
-              },
-            });
-
+            
             await aiMessage.save();
 
             // Update project last accessed time
@@ -667,27 +895,36 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
               await task.save();
             }
 
-            // Create fallback AI message
-            const fallbackMessage = new Message({
-              projectId,
-              userId: user.userId,
-              role: 'assistant',
-              content:
-                'I apologize, but I encountered an error processing your request. Please try again or check your API configuration.',
-              parts: [
-                {
+            // Update AI message with error if it exists
+            if (aiMessage) {
+              aiMessage.content = 'I apologize, but I encountered an error processing your request. Please try again or check your API configuration.';
+              if (!aiMessage.parts.some((part: any) => part.type === 'text' && part.data.includes('error'))) {
+                aiMessage.parts.push({
                   type: 'text',
                   data: 'I apologize, but I encountered an error processing your request. Please try again or check your API configuration.',
+                });
+                aiMessage.markModified('parts');
+              }
+              aiMessage.metadata.error = aiError instanceof Error ? aiError.message : 'Unknown error';
+              await aiMessage.save();
+            } else {
+              // If aiMessage wasn't created yet, create an error message
+              const errorMessage = new Message({
+                projectId,
+                userId: user.userId,
+                role: 'assistant',
+                content: 'I apologize, but I encountered an error processing your request. Please try again or check your API configuration.',
+                parts: [{
+                  type: 'text',
+                  data: 'I apologize, but I encountered an error processing your request. Please try again or check your API configuration.',
+                }],
+                parentMessageId: userMessage._id.toString(),
+                metadata: {
+                  error: aiError instanceof Error ? aiError.message : 'Unknown error',
                 },
-              ],
-              parentMessageId: userMessage._id.toString(),
-              metadata: {
-                error:
-                  aiError instanceof Error ? aiError.message : 'Unknown error',
-              },
-            });
-
-            await fallbackMessage.save();
+              });
+              await errorMessage.save();
+            }
 
             // Send error event
             sendEvent(SSEEventType.Error, {

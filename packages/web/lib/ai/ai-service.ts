@@ -20,6 +20,7 @@ export interface AIServiceConfig {
   sandboxId?: string;
   provider?: 'openai' | 'anthropic' | 'openrouter' | 'gemini' | 'custom';
   customEndpoint?: string;
+  temperature?: number;
 }
 
 export class AIService {
@@ -47,6 +48,11 @@ export class AIService {
       cwd: serviceConfig.cwd || process.cwd(),
       model: serviceConfig.model || 'gemini-2.5-flash',
       proxy: process.env.HTTP_PROXY || process.env.HTTPS_PROXY,
+      contentGenerator: {
+        samplingParams: {
+          temperature: serviceConfig.temperature !== undefined ? serviceConfig.temperature : 1.0,
+        },
+      },
     };
 
     // Use SandboxConfig for sandboxed environments

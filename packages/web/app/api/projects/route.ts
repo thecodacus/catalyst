@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   return withAuth(request, async (req, user) => {
     try {
-      const { name, description, createGitRepo = true } = await req.json();
+      const { name, description, createGitRepo = true, git } = await req.json();
 
       if (!name) {
         return NextResponse.json(
@@ -44,8 +44,15 @@ export async function POST(request: NextRequest) {
 
       let gitInfo = undefined;
 
+      // Use provided git info if importing existing repo
+      if (git) {
+        gitInfo = {
+          ...git,
+          createdAt: new Date(),
+        };
+      }
       // Create GitHub repository if requested and credentials are available
-      if (createGitRepo) {
+      else if (createGitRepo) {
         const gitService = getGitServiceFromEnv();
         if (gitService) {
           try {
