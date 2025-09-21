@@ -2,6 +2,7 @@ import {
   ToolCallRequestInfo,
   ToolCallResponseInfo,
   Config,
+  ToolResult,
 } from '@catalyst/core';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -71,6 +72,7 @@ export class BackendToolExecutor {
 
   async executeToolCall(
     request: ToolCallRequestInfo,
+    abortSignal?: AbortSignal,
   ): Promise<ToolCallResponseInfo> {
     const startTime = Date.now();
 
@@ -103,7 +105,11 @@ export class BackendToolExecutor {
       }
 
       // Execute the tool based on its type
-      let result;
+      let result: {
+        content?: { text: string }[];
+        display?: any;
+        error?: { type: string; message: string };
+      };
       switch (request.name) {
         case 'read':
         case 'read_file': // Support both names
@@ -136,11 +142,14 @@ export class BackendToolExecutor {
           break;
         default:
           // For other tools, try to execute them directly if available
-          if (tool && tool.execute) {
-            const toolResult = await tool.execute(request.args);
+          if (tool && tool.buildAndExecute) {
+            const toolResult = await tool.buildAndExecute(
+              request.args,
+              abortSignal || new AbortController().signal,
+            );
             result = {
-              content: toolResult.content,
-              display: toolResult.display,
+              content: [{ text: toolResult.llmContent.toString() }],
+              display: toolResult.returnDisplay,
             };
           } else {
             throw new Error(

@@ -1,128 +1,163 @@
-import { Config, ConfigParameters, WorkspaceContext } from '@catalyst/core';
+import { ApprovalMode, Config, ConfigParameters } from '@catalyst/core';
 import * as path from 'path';
 import { SANDBOX_REPO_PATH } from '@/lib/constants/sandbox-paths';
+import { AsyncSandboxWorkspaceContext } from './sandbox-workspace-context';
 
 /**
- * Mock WorkspaceContext for CodeSandbox environments
- * This bypasses filesystem checks and works with virtual sandbox paths
+ * Async Config class for sandboxed environments
+ * Works entirely with CodeSandbox VM paths without local filesystem access
  */
-class SandboxWorkspaceContext implements WorkspaceContext {
-  private directories: Set<string>;
-  private initialDirectories: Set<string>;
+export class AsyncSandboxConfig {
+  private workspaceContext: AsyncSandboxWorkspaceContext;
+  private sandboxId: string;
+  private sandboxPath: string;
 
-  constructor(initialDirectory: string, additionalDirectories: string[] = []) {
-    this.directories = new Set<string>();
-    this.initialDirectories = new Set<string>();
+  // Store config properties that don't need async
+  private model: string;
+  private approvalMode: ApprovalMode;
+  private debugMode: boolean;
+  private embeddingModel?: string;
+  private sessionId: string;
+  private userMemory: string;
 
-    // Add directories without filesystem validation
-    this.addDirectory(initialDirectory);
-    this.initialDirectories.add(initialDirectory);
+  constructor(
+    params: ConfigParameters & { sandboxId?: string; projectId: string },
+  ) {
+    this.sandboxPath = params.targetDir || SANDBOX_REPO_PATH;
+    this.sandboxId = params.sandboxId || `sandbox-${Date.now()}`;
 
-    for (const dir of additionalDirectories) {
-      this.addDirectory(dir);
-      this.initialDirectories.add(dir);
-    }
-  }
+    // Initialize non-async properties from ConfigParameters
+    this.model = params.model;
+    this.approvalMode = params.approvalMode || ApprovalMode.AUTO_EDIT;
+    this.debugMode = params.debugMode || false;
+    this.embeddingModel = params.embeddingModel;
+    this.sessionId = params.sessionId;
+    this.userMemory = params.userMemory || '';
 
-  addDirectory(
-    directory: string,
-    basePath: string = '/project/workspace',
-  ): void {
-    const absolutePath = path.posix.isAbsolute(directory)
-      ? directory
-      : path.posix.join(basePath, directory);
-
-    this.directories.add(absolutePath);
-  }
-
-  hasDirectory(directory: string): boolean {
-    const normalizedPath = path.posix.normalize(directory);
-    return Array.from(this.directories).some(
-      (dir) => normalizedPath === dir || normalizedPath.startsWith(dir + '/'),
+    // Create async workspace context
+    this.workspaceContext = new AsyncSandboxWorkspaceContext(
+      this.sandboxPath,
+      params.includeDirectories ?? [],
+      params.projectId,
     );
   }
 
-  getDirectories(): readonly string[] {
-    return Array.from(this.directories);
+  // Async version of workspace context getter
+  async getWorkspaceContext(): Promise<AsyncSandboxWorkspaceContext> {
+    return this.workspaceContext;
   }
 
-  getInitialDirectories(): readonly string[] {
-    return Array.from(this.initialDirectories);
+  // Non-async getters that don't require file system
+  getTargetDir(): string {
+    return this.sandboxPath;
   }
 
-  setDirectories(directories: readonly string[]): void {
-    this.directories.clear();
-    for (const dir of directories) {
-      this.addDirectory(dir);
-    }
+  getProjectRoot(): string {
+    return this.sandboxPath;
   }
 
-  isPathWithinWorkspace(pathToCheck: string): boolean {
-    // In sandbox environment, all paths within /project/workspace are valid
-    const normalizedPath = path.posix.normalize(pathToCheck);
-    return normalizedPath.startsWith('/project/workspace');
+  getSandboxId(): string {
+    return this.sandboxId;
+  }
+
+  getModel(): string {
+    return this.model;
+  }
+
+  getApprovalMode(): ApprovalMode {
+    return this.approvalMode;
+  }
+
+  getDebugMode(): boolean {
+    return this.debugMode;
+  }
+
+  getCwd(): string {
+    return this.sandboxPath;
+  }
+
+  getDebugLogPath(): string | undefined {
+    return undefined; // No local file system logging
+  }
+
+  getEmbeddingModel(): string | undefined {
+    return this.embeddingModel;
+  }
+
+  getSessionId(): string {
+    return this.sessionId;
+  }
+
+  getUserMemory(): string {
+    return this.userMemory;
+  }
+
+  // For compatibility with tools that expect a sync Config instance
+  // Returns a partial config object with non-async properties
+  getSyncConfig(): Partial<Config> {
+    return {
+      getModel: () => this.model,
+      getTargetDir: () => this.sandboxPath,
+      getProjectRoot: () => this.sandboxPath,
+      getCwd: () => this.sandboxPath,
+      getDebugMode: () => this.debugMode,
+      getApprovalMode: () => this.approvalMode as any,
+      getSessionId: () => this.sessionId,
+      getUserMemory: () => this.userMemory,
+      getEmbeddingModel: () => this.embeddingModel,
+    } as Partial<Config>;
   }
 }
 
 /**
- * Custom Config class for sandboxed environments
- * Works entirely with CodeSandbox VM paths without local filesystem access
+ * Legacy SandboxConfig for backward compatibility
+ * @deprecated Use AsyncSandboxConfig instead
  */
 export class SandboxConfig extends Config {
-  private sandboxWorkspaceContext: SandboxWorkspaceContext;
+  private sandboxWorkspaceContext?: AsyncSandboxWorkspaceContext;
   private sandboxId: string;
   private sandboxPath: string;
 
-  constructor(params: ConfigParameters & { sandboxId?: string }) {
-    // Store sandbox configuration - now using repo subdirectory
+  constructor(
+    params: ConfigParameters & { sandboxId?: string; projectId?: string },
+    getFs?: () => Promise<any>,
+    cwd?: string,
+  ) {
     const sandboxPath = params.targetDir || SANDBOX_REPO_PATH;
     const sandboxId = params.sandboxId || `sandbox-${Date.now()}`;
 
-    // Create a sandbox workspace context that doesn't validate filesystem
-    const sandboxWorkspaceContext = new SandboxWorkspaceContext(
-      sandboxPath,
-      params.includeDirectories ?? [],
-    );
-
     // Call parent constructor with current working directory to avoid validation errors
-    // We'll override the workspace context afterward
     super({
       ...params,
-      targetDir: process.cwd(),
-      cwd: process.cwd(),
+      targetDir: cwd || process.cwd(),
+      cwd: cwd || process.cwd(),
     });
 
-    // Override with sandbox-specific properties
     this.sandboxPath = sandboxPath;
-    this.sandboxWorkspaceContext = sandboxWorkspaceContext;
     this.sandboxId = sandboxId;
 
-    // Replace the workspace context with our sandbox version
-    const configWithWorkspace = this as unknown as {
-      workspaceContext: SandboxWorkspaceContext;
-    };
-    configWithWorkspace.workspaceContext = this.sandboxWorkspaceContext;
-    // Also override the targetDir to use sandbox path
+    // Create async workspace context if projectId provided
+    if (params.projectId) {
+      this.sandboxWorkspaceContext = new AsyncSandboxWorkspaceContext(
+        sandboxPath,
+        params.includeDirectories ?? [],
+        params.projectId,
+      );
+    }
+
+    // Override the targetDir to use sandbox path
     const configWithTargetDir = this as unknown as { targetDir: string };
     configWithTargetDir.targetDir = this.sandboxPath;
   }
 
-  // Override to return sandbox workspace context
-  override getWorkspaceContext(): WorkspaceContext {
-    return this.sandboxWorkspaceContext;
-  }
-
-  // Override to return sandbox target directory
   override getTargetDir(): string {
     return this.sandboxPath;
   }
 
-  // Override to return sandbox project root
   override getProjectRoot(): string {
     return this.sandboxPath;
   }
 
-  // Custom method to get sandbox ID
   getSandboxId(): string {
     return this.sandboxId;
   }

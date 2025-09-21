@@ -6,8 +6,10 @@ import {
   GeminiEventType,
   ToolCallRequestInfo,
 } from '@catalyst/core';
-import { SandboxConfig } from './sandbox-config';
+import { SandboxConfig, AsyncSandboxConfig } from './sandbox-config';
 import { SANDBOX_REPO_PATH } from '@/lib/constants/sandbox-paths';
+import { AsyncPromptLoader } from './async-prompt-loader';
+import { AsyncRemoteLogger } from './async-logger';
 
 export interface AIServiceConfig {
   apiKey?: string;
@@ -18,18 +20,27 @@ export interface AIServiceConfig {
   cwd?: string;
   isSandboxed?: boolean;
   sandboxId?: string;
+  projectId?: string;
   provider?: 'openai' | 'anthropic' | 'openrouter' | 'gemini' | 'custom';
   customEndpoint?: string;
   temperature?: number;
+  useAsyncConfig?: boolean;
 }
 
 export class AIService {
   private _geminiClient: GeminiClient | null = null;
-  private _config: Config;
+  private _config: Config | AsyncSandboxConfig;
+  private _asyncConfig?: AsyncSandboxConfig;
   private abortController: AbortController | null = null;
+  private promptLoader?: AsyncPromptLoader;
+  private logger?: AsyncRemoteLogger;
 
-  get config(): Config {
+  get config(): Config | AsyncSandboxConfig {
     return this._config;
+  }
+
+  get asyncConfig(): AsyncSandboxConfig | undefined {
+    return this._asyncConfig;
   }
 
   get geminiClient(): GeminiClient {
