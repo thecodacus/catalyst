@@ -1,6 +1,7 @@
 import { SandboxClient } from '@codesandbox/sdk/browser';
 import { getCodeSandboxService } from '@/lib/sandbox/codesandbox-service';
 import { getCoreSystemPrompt } from '@catalyst/core';
+import { SANDBOX_REPO_PATH } from '../constants/sandbox-paths';
 
 export interface SystemPromptConfig {
   customPromptPath?: string;
@@ -37,7 +38,7 @@ export class AsyncPromptLoader {
    */
   async loadSystemPrompt(config?: SystemPromptConfig): Promise<string> {
     const customPath = config?.customPromptPath;
-    
+
     // Check cache first
     if (customPath && this.cachedPrompts.has(customPath)) {
       return this.cachedPrompts.get(customPath)!;
@@ -48,18 +49,21 @@ export class AsyncPromptLoader {
       try {
         const client = await this.clientPromise;
         const content = await client.fs.readTextFile(customPath);
-        
+
         // Cache the loaded prompt
         this.cachedPrompts.set(customPath, content);
-        
+
         // Add user memory if provided
         if (config.userMemory) {
           return `${content}\n\n---\n\n${config.userMemory}`;
         }
-        
+
         return content;
       } catch (error) {
-        console.warn(`Failed to load custom prompt from ${customPath}, using default:`, error);
+        console.warn(
+          `Failed to load custom prompt from ${customPath}, using default:`,
+          error,
+        );
       }
     }
 
@@ -73,14 +77,15 @@ export class AsyncPromptLoader {
   private getDefaultPrompt(config?: SystemPromptConfig): string {
     // Use the core system prompt generator with remote-specific modifications
     const basePrompt = getCoreSystemPrompt(config?.userMemory, {
-      systemPromptMappings: config?.modelMappings
+      systemPromptMappings: config?.modelMappings,
     });
 
     // Add remote-specific context
     const remoteContext = `
 
 # Remote Sandbox Environment
-You are operating in a remote CodeSandbox environment. File system operations are performed through the sandbox client API. All paths are relative to the sandbox root at /home/project/repo.
+You are operating in a remote CodeSandbox environment. File system operations are performed through the sandbox client API. 
+All paths are relative to the sandbox root at ${SANDBOX_REPO_PATH}.
 
 - File operations are asynchronous and may have network latency
 - The sandbox environment is isolated and secure
@@ -96,7 +101,7 @@ You are operating in a remote CodeSandbox environment. File system operations ar
    */
   async saveCustomPrompt(path: string, content: string): Promise<void> {
     const client = await this.clientPromise;
-    
+
     // Ensure directory exists
     const dir = path.substring(0, path.lastIndexOf('/'));
     if (dir) {
@@ -106,10 +111,10 @@ You are operating in a remote CodeSandbox environment. File system operations ar
         // Directory might already exist
       }
     }
-    
+
     // Save the prompt
     await client.fs.writeTextFile(path, content);
-    
+
     // Update cache
     this.cachedPrompts.set(path, content);
   }
@@ -123,7 +128,7 @@ You are operating in a remote CodeSandbox environment. File system operations ar
 
     try {
       const entries = await client.fs.readdir(directory);
-      
+
       for (const entry of entries) {
         if (entry.name.endsWith('.md') || entry.name.endsWith('.txt')) {
           files.push(`${directory}/${entry.name}`);
@@ -162,10 +167,10 @@ You are operating in a remote CodeSandbox environment. File system operations ar
    */
   async deleteCustomPrompt(path: string): Promise<void> {
     const client = await this.clientPromise;
-    
+
     try {
       await client.fs.remove(path);
-      
+
       // Remove from cache
       this.cachedPrompts.delete(path);
     } catch (error) {

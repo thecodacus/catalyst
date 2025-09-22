@@ -5,7 +5,7 @@ import {
   Part,
   RequestOptions,
 } from '@google/generative-ai';
-import { OpenAI } from 'openai';
+import OpenAI from 'openai';
 import { 
   AuthType, 
   ServerGeminiStreamEvent, 
@@ -15,6 +15,7 @@ import {
 } from '@catalyst/core';
 import { AsyncSandboxConfig } from './sandbox-config';
 import { AsyncPromptLoader } from './async-prompt-loader';
+import { OpenAIConverter } from './openai-converter';
 
 interface CatalystClientConfig {
   model: string;
@@ -86,6 +87,18 @@ export class CatalystClient {
    * Set conversation history
    */
   setHistory(history: Content[]): void {
+    console.log('📋 CatalystClient.setHistory called with', history.length, 'messages');
+    history.forEach((content, idx) => {
+      if (content.parts) {
+        const partTypes = content.parts.map((p: any) => {
+          if ('functionCall' in p) return `functionCall(${p.functionCall?.name}:${p.functionCall?.id})`;
+          if ('functionResponse' in p) return `functionResponse(${p.functionResponse?.name}:${p.functionResponse?.id})`;
+          if ('text' in p) return `text(${p.text?.length} chars)`;
+          return 'unknown';
+        });
+        console.log(`  [${idx}] ${content.role}: ${partTypes.join(', ')}`);
+      }
+    });
     this.history = history;
   }
 
@@ -149,6 +162,7 @@ export class CatalystClient {
     if (!this.model) throw new Error('Gemini model not initialized');
 
     // Create chat with history and tools
+    console.log('Creating Gemini chat with history:', this.history.length, 'messages');
     const chat = this.model.startChat({
       history: this.history,
       tools: Array.from(this.tools.values()).map(tool => ({
@@ -244,14 +258,41 @@ export class CatalystClient {
   ): AsyncGenerator<ServerGeminiStreamEvent, void, unknown> {
     if (!this.openAI) throw new Error('OpenAI client not initialized');
 
-    // Convert message parts to OpenAI format
-    const openAIMessage = this.convertToOpenAIMessage(message);
-    
-    // Prepare messages with history
-    const messages = [
-      ...this.convertHistoryToOpenAI(),
-      openAIMessage,
+    // Build complete contents array (history + new message)
+    const contents: Content[] = [
+      ...this.history,
+      { role: 'user', parts: message },
     ];
+    
+    console.log('🔍 New message parts:', message.map((p: any) => {
+      if ('functionResponse' in p) {
+        return `functionResponse: ${p.functionResponse.id} -> ${JSON.stringify(p.functionResponse.response)}`;
+      }
+      return 'text' in p ? `text: ${p.text.substring(0, 50)}...` : 'unknown part';
+    }));
+    
+    // Convert to OpenAI format using the converter utility
+    let messages = OpenAIConverter.convertToOpenAIFormat(contents);
+    
+    // Merge consecutive assistant messages to avoid errors
+    messages = OpenAIConverter.mergeConsecutiveMessages(messages);
+    
+    console.log('Creating OpenAI chat with messages:', messages.length);
+    
+    // Log last few messages to see context
+    console.log('📋 Last 5 messages being sent:');
+    messages.slice(-5).forEach((msg, idx) => {
+      const msgIdx = messages.length - 5 + idx;
+      if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
+        console.log(`  [${msgIdx}] assistant: ${msg.tool_calls.length} tool calls ->`, 
+          msg.tool_calls.map((tc: any) => `${tc.function.name}(${tc.id})`)  
+        );
+      } else if (msg.role === 'tool') {
+        console.log(`  [${msgIdx}] tool: id=${(msg as any).tool_call_id}, content=${(msg as any).content?.substring(0, 100)}...`);
+      } else {
+        console.log(`  [${msgIdx}] ${msg.role}: ${(msg as any).content?.substring(0, 100)}...`);
+      }
+    });
 
     // Add system prompt
     const systemPrompt = await this.clientConfig.promptLoader.loadSystemPrompt({
@@ -281,6 +322,7 @@ export class CatalystClient {
 
     let fullContent = '';
     const toolCallsById = new Map<number, any>();
+    const completedToolCalls: any[] = [];
 
     for await (const chunk of stream) {
       if (signal.aborted) {
@@ -334,6 +376,17 @@ export class CatalystClient {
             console.error('Failed to parse complete tool call arguments:', toolCall.function.arguments);
             args = {};
           }
+          
+          // Store the completed tool call for history
+          completedToolCalls.push({
+            id: toolCall.id,
+            function: {
+              name: toolCall.function.name,
+              arguments: toolCall.function.arguments
+            },
+            parsedArgs: args
+          });
+          
           const toolCallInfo: ToolCallRequestInfo = {
             callId: toolCall.id || `${toolCall.function.name}-${Date.now()}`,
             name: toolCall.function.name,
@@ -348,36 +401,36 @@ export class CatalystClient {
           };
         }
         
-        // Clear for next set of tool calls
+        // Clear the map after processing all tool calls
         toolCallsById.clear();
       }
     }
 
     // Update history
     this.history.push({ role: 'user', parts: message });
-    this.history.push({ role: 'model', parts: [{ text: fullContent }] });
+    
+    // Build model response parts including tool calls
+    const modelParts: Part[] = [];
+    if (fullContent) {
+      modelParts.push({ text: fullContent });
+    }
+    
+    // Add any tool calls to history from our saved array
+    for (const toolCall of completedToolCalls) {
+      modelParts.push({
+        functionCall: {
+          id: toolCall.id,
+          name: toolCall.function.name,
+          args: toolCall.parsedArgs,
+        },
+      });
+    }
+    
+    if (modelParts.length > 0) {
+      this.history.push({ role: 'model', parts: modelParts });
+    }
   }
 
-  /**
-   * Convert Part[] to OpenAI message format
-   */
-  private convertToOpenAIMessage(parts: Part[]): any {
-    const textParts = parts.filter(p => 'text' in p).map(p => (p as any).text).join('\n');
-    return {
-      role: 'user',
-      content: textParts,
-    };
-  }
-
-  /**
-   * Convert history to OpenAI format
-   */
-  private convertHistoryToOpenAI(): any[] {
-    return this.history.map(content => ({
-      role: content.role === 'user' ? 'user' : 'assistant',
-      content: content.parts.filter((p: Part) => 'text' in p).map((p: Part) => (p as any).text).join('\n'),
-    }));
-  }
 
   /**
    * Get default headers for the provider

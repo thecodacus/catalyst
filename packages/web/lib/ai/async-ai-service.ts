@@ -359,6 +359,69 @@ export class AsyncAIService {
     }
   }
 
+  /**
+   * Set conversation history
+   */
+  async setHistory(messages: any[]): Promise<void> {
+    // Ensure service is initialized
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
+    if (!this._catalystClient) {
+      throw new Error('AI service not initialized');
+    }
+    
+    // Convert message format to Content format expected by Gemini
+    const history = messages.map(msg => {
+      // Convert parts if they exist, otherwise use content
+      let parts: any[] = [];
+      
+      if (msg.parts && Array.isArray(msg.parts)) {
+        // Convert from database parts format to Gemini format
+        parts = msg.parts.map((part: any) => {
+          if (part.type === 'text') {
+            return { text: part.data || '' };
+          } else if (typeof part === 'string') {
+            return { text: part };
+          } else if (part.text) {
+            return { text: part.text };
+          }
+          return { text: JSON.stringify(part) };
+        });
+      } else if (msg.content) {
+        parts = [{ text: msg.content }];
+      }
+      
+      return {
+        role: msg.role === 'user' ? 'user' : 'model',
+        parts: parts.length > 0 ? parts : [{ text: '' }]
+      };
+    });
+    
+    console.log('🎨 AsyncAIService: Setting history with', history.length, 'messages');
+    
+    // Log detailed history for debugging tool responses
+    history.forEach((msg, idx) => {
+      const role = msg.role === 'user' ? 'user' : 'model';
+      const partsSummary = msg.parts.map((p: any) => {
+        if (p.type === 'tool-call') {
+          return `tool-call(${p.data.tool}:${p.data.id})`;
+        } else if (p.type === 'text') {
+          return `text(${p.data?.length || 0} chars)`;
+        } else if ('functionCall' in p) {
+          return `functionCall(${p.functionCall?.name}:${p.functionCall?.id})`;
+        } else if ('functionResponse' in p) {
+          return `functionResponse(${p.functionResponse?.name}:${p.functionResponse?.id})`;
+        }
+        return `${p.type || 'unknown'}`;
+      });
+      console.log(`  [${idx}] ${role}: ${partsSummary.join(', ')}`);
+    });
+    
+    this._catalystClient.setHistory(history);
+  }
+
   async updateConfig(updates: Partial<AsyncAIServiceConfig>): Promise<void> {
     // Update service config
     this.serviceConfig = { ...this.serviceConfig, ...updates };

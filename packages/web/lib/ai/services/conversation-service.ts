@@ -52,16 +52,28 @@ export class ConversationService {
     let aiMessage: any;
 
     try {
-      // Load user's AI settings
-      const userSettings = await loadUserAISettings(user.userId);
+      // Load user's AI settings and conversation history in parallel
+      const [userSettings, conversationHistory] = await Promise.all([
+        loadUserAISettings(user.userId),
+        this.messageService.getConversationHistory(projectId, 100)
+      ]);
       
       // Initialize async AI service
       const aiConfig = this.buildAsyncAIConfig(projectId, user.userId, userSettings);
       const aiService = await getAsyncAIService(aiConfig);
       
-      // Note: With async AI service, history is managed internally
-      // The async service will load and manage conversation context automatically
-      console.log(`📚 Using async AI service for project ${projectId}`);
+      // Set conversation history in the AI service
+      if (conversationHistory.length > 0) {
+        console.log(`📚 Setting ${conversationHistory.length} messages in history`);
+        console.log('First few messages:', conversationHistory.slice(0, 3).map(m => ({
+          role: m.role,
+          content: m.content?.substring(0, 50),
+          parts: m.parts?.length
+        })));
+        await aiService.setHistory(conversationHistory);
+      }
+      
+      console.log(`📚 Using async AI service for project ${projectId} with ${conversationHistory.length} messages in history`);
       
       // Create initial task
       const task = await this.taskService.createTask(projectId, user.userId, message);
@@ -122,22 +134,20 @@ export class ConversationService {
         }
       );
 
-      // Update project last accessed time
-      await Project.findByIdAndUpdate(projectId, {
-        lastAccessed: new Date(),
-      });
-
-      // Auto-commit and push any file changes
-      if (result.executor && result.executor.commitChanges) {
-        try {
-          await result.executor.commitChanges();
-          console.log('🔄 Auto-commit and push completed for project:', projectId);
-        } catch (commitError) {
-          console.error('Failed to auto-commit and push changes:', commitError);
-        }
-      }
-
+      // Send AI complete event immediately
       streamingService.sendAIComplete(aiMessage._id, finalTask._id.toString());
+      
+      // Update project last accessed time asynchronously
+      Project.findByIdAndUpdate(projectId, {
+        lastAccessed: new Date(),
+      }).catch(err => console.error('Failed to update project last accessed:', err));
+
+      // Auto-commit and push any file changes asynchronously
+      if (result.executor && result.executor.commitChanges) {
+        result.executor.commitChanges()
+          .then(() => console.log('🔄 Auto-commit and push completed for project:', projectId))
+          .catch(commitError => console.error('Failed to auto-commit and push changes:', commitError));
+      }
     } catch (error) {
       console.error('AI processing error:', error);
       
@@ -247,6 +257,16 @@ export class ConversationService {
       pendingToolCalls.length = 0; // Clear the array
 
       // Send tool responses back to AI for continuation
+      console.log('🔄 Sending tool responses back to AI:', JSON.stringify(toolResponses.parts, null, 2));
+      console.log('📤 Tool response parts:', toolResponses.parts.map(p => ({
+        functionResponse: {
+          id: p.functionResponse.id,
+          name: p.functionResponse.name,
+          responseType: typeof p.functionResponse.response,
+          response: p.functionResponse.response,
+        }
+      })));
+      
       await aiService.sendMessage(toolResponses.parts, projectId, async (event: ServerGeminiStreamEvent) => {
         await this.handleStreamEvent(
           event,
@@ -356,9 +376,14 @@ export class ConversationService {
         break;
 
       case GeminiEventType.Error:
-        const errorMessage = typeof event.value === 'string' 
-          ? event.value 
-          : event.value?.error?.message || event.value?.message || 'Unknown AI error';
+        let errorMessage = 'Unknown AI error';
+        if (typeof event.value === 'string') {
+          errorMessage = event.value;
+        } else if (event.value && typeof event.value === 'object') {
+          errorMessage = (event.value as any).message || 
+                        (event.value as any).error?.message || 
+                        JSON.stringify(event.value);
+        }
         throw new Error(errorMessage);
 
       case GeminiEventType.UserCancelled:
@@ -427,12 +452,14 @@ export class ConversationService {
         // Extract output text
         const outputText = this.extractToolOutput(toolResponse);
 
-        // Add to response parts
+        // Add to response parts in the format expected by the old implementation
         toolResponses.parts.push({
           functionResponse: {
             id: toolCall.callId,
             name: toolCall.name,
-            response: { output: outputText },
+            response: {
+              output: outputText,
+            },
           },
         });
 

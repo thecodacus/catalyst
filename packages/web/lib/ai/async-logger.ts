@@ -20,7 +20,11 @@ export class AsyncRemoteLogger {
   private persistToFile: boolean;
   private logFilePath: string = '.logs/session.json';
 
-  constructor(projectId: string, sessionId: string, persistToFile: boolean = false) {
+  constructor(
+    projectId: string,
+    sessionId: string,
+    persistToFile: boolean = false,
+  ) {
     this.projectId = projectId;
     this.sessionId = sessionId;
     this.persistToFile = persistToFile;
@@ -29,12 +33,12 @@ export class AsyncRemoteLogger {
   async initialize(): Promise<void> {
     if (this.persistToFile && !this.clientPromise) {
       this.clientPromise = this.initializeClient();
-      
+
       // Try to load existing logs
       try {
-        const client = await this.clientPromise;
-        const existingLogs = await client.fs.readTextFile(this.logFilePath);
-        this.logs = JSON.parse(existingLogs);
+        // const client = await this.clientPromise;
+        // const existingLogs = await client.fs.readTextFile(this.logFilePath);
+        // this.logs = JSON.parse(existingLogs);
       } catch {
         // No existing logs or file doesn't exist, start fresh
         this.logs = [];
@@ -54,16 +58,24 @@ export class AsyncRemoteLogger {
       timestamp: Date.now(),
       sessionId: this.sessionId,
     };
-    
+
     this.logs.push(fullEntry);
-    
+    console.log(
+      `[Catalyst][${fullEntry.timestamp}] ${fullEntry.type}: ${JSON.stringify(fullEntry.data)}`,
+    );
+    // Skip file persistence for now - it's causing performance issues
+    return;
+
     // Persist to sandbox if enabled
     if (this.persistToFile && this.clientPromise) {
       try {
         const client = await this.clientPromise;
-        
+
         // Ensure directory exists
-        const dir = this.logFilePath.substring(0, this.logFilePath.lastIndexOf('/'));
+        const dir = this.logFilePath.substring(
+          0,
+          this.logFilePath.lastIndexOf('/'),
+        );
         if (dir) {
           try {
             await client.fs.mkdir(dir, true);
@@ -71,12 +83,23 @@ export class AsyncRemoteLogger {
             // Directory might already exist
           }
         }
-        
-        // Write logs to file
-        await client.fs.writeTextFile(
+
+        // Write logs to file with timeout
+        const writePromise = client.fs.writeTextFile(
           this.logFilePath,
-          JSON.stringify(this.logs, null, 2)
+          JSON.stringify(this.logs, null, 2),
         );
+
+        // Create a timeout promise
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(
+            () => reject(new Error('Write timeout after 5 seconds')),
+            5000,
+          ),
+        );
+
+        // Race between write and timeout
+        await Promise.race([writePromise, timeoutPromise]);
       } catch (error) {
         console.error('Failed to persist logs to sandbox:', error);
         // Continue anyway - logging shouldn't break the application
@@ -90,13 +113,13 @@ export class AsyncRemoteLogger {
 
   async getSessionLogs(sessionId?: string): Promise<LogEntry[]> {
     const targetSession = sessionId || this.sessionId;
-    return this.logs.filter(log => log.sessionId === targetSession);
+    return this.logs.filter((log) => log.sessionId === targetSession);
   }
 
   async checkpoint(tag: string, data: any): Promise<void> {
     await this.log({
       type: 'checkpoint',
-      data: { tag, ...data }
+      data: { tag, ...data },
     });
   }
 
@@ -106,24 +129,24 @@ export class AsyncRemoteLogger {
     try {
       const client = await this.clientPromise;
       const checkpointPath = `.checkpoints/checkpoint-${tag}.json`;
-      
+
       // Ensure directory exists
       try {
         await client.fs.mkdir('.checkpoints', true);
       } catch {
         // Directory might already exist
       }
-      
+
       // Save checkpoint
       await client.fs.writeTextFile(
         checkpointPath,
-        JSON.stringify(conversation, null, 2)
+        JSON.stringify(conversation, null, 2),
       );
-      
+
       // Log the checkpoint save
       await this.log({
         type: 'checkpoint_saved',
-        data: { tag, path: checkpointPath }
+        data: { tag, path: checkpointPath },
       });
     } catch (error) {
       console.error('Failed to save checkpoint:', error);
@@ -137,7 +160,7 @@ export class AsyncRemoteLogger {
     try {
       const client = await this.clientPromise;
       const checkpointPath = `.checkpoints/checkpoint-${tag}.json`;
-      
+
       const content = await client.fs.readTextFile(checkpointPath);
       return JSON.parse(content);
     } catch (error) {
@@ -152,7 +175,7 @@ export class AsyncRemoteLogger {
     try {
       const client = await this.clientPromise;
       const checkpointPath = `.checkpoints/checkpoint-${tag}.json`;
-      
+
       await client.fs.stat(checkpointPath);
       return true;
     } catch {
@@ -166,15 +189,15 @@ export class AsyncRemoteLogger {
     try {
       const client = await this.clientPromise;
       const checkpointPath = `.checkpoints/checkpoint-${tag}.json`;
-      
+
       await client.fs.remove(checkpointPath);
-      
+
       // Log the deletion
       await this.log({
         type: 'checkpoint_deleted',
-        data: { tag, path: checkpointPath }
+        data: { tag, path: checkpointPath },
       });
-      
+
       return true;
     } catch (error) {
       console.error('Failed to delete checkpoint:', error);
@@ -189,13 +212,16 @@ export class AsyncRemoteLogger {
 
   // Get logs filtered by type
   async getLogsByType(type: string): Promise<LogEntry[]> {
-    return this.logs.filter(log => log.type === type);
+    return this.logs.filter((log) => log.type === type);
   }
 
   // Get logs within a time range
-  async getLogsInTimeRange(startTime: number, endTime: number): Promise<LogEntry[]> {
+  async getLogsInTimeRange(
+    startTime: number,
+    endTime: number,
+  ): Promise<LogEntry[]> {
     return this.logs.filter(
-      log => log.timestamp >= startTime && log.timestamp <= endTime
+      (log) => log.timestamp >= startTime && log.timestamp <= endTime,
     );
   }
 }

@@ -27,6 +27,8 @@ export class CodeSandboxService {
   private sandboxes: Map<string, { sandbox: Sandbox; client?: SandboxClient }> =
     new Map();
   private sessions: Map<string, SandboxSession> = new Map();
+  // Prevent concurrent sandbox creation for the same project
+  private creationLocks = new Map<string, Promise<{ sandbox: Sandbox; client: SandboxClient }>>();
 
   constructor(private config: CodeSandboxConfig) {
     this.sdk = new CodeSandbox(config.apiKey);
@@ -72,6 +74,36 @@ export class CodeSandboxService {
       await this.updateLastAccessed(projectId);
       return { sandbox: existing.sandbox, client: existing.client };
     }
+
+    // Check if there's already a creation in progress
+    const existingCreation = this.creationLocks.get(projectId);
+    if (existingCreation) {
+      console.log(`🔄 Waiting for existing sandbox creation for project ${projectId}`);
+      return await existingCreation;
+    }
+
+    // Create a new lock for this project
+    const creationPromise = this.createSandboxForProject(projectId, gitConfig);
+    this.creationLocks.set(projectId, creationPromise);
+
+    try {
+      const result = await creationPromise;
+      return result;
+    } finally {
+      // Clean up the lock after creation (success or failure)
+      this.creationLocks.delete(projectId);
+    }
+  }
+
+  private async createSandboxForProject(
+    projectId: string,
+    gitConfig?: {
+      email: string;
+      name: string;
+      accessToken?: string;
+      provider?: string;
+    },
+  ): Promise<{ sandbox: Sandbox; client: SandboxClient }> {
 
     // Check for existing session in database
     const dbSession = await SandboxSession.findOne({
@@ -222,7 +254,12 @@ export class CodeSandboxService {
   private async initializeSandbox(
     client: SandboxClient,
     repoUrl?: string,
-    gitConfig?: { repoUrl?: string },
+    gitConfig?: { 
+      email: string;
+      name: string;
+      accessToken?: string;
+      provider?: string;
+    },
   ): Promise<void> {
     try {
       if (repoUrl) {
@@ -239,9 +276,9 @@ export class CodeSandboxService {
           );
           console.log('Git status in workspace:', gitCheckWorkspace);
 
-          // Clone into 'repo' subdirectory
+          // Clone directly into 'repo' subdirectory
           const cloneResult = await client.commands.run(
-            `git submodule add ${repoUrl} repo && git commit -m "Add child repo as submodule"`,
+            `git clone ${repoUrl} repo`,
             {
               cwd: SANDBOX_WORKSPACE_PATH,
             },
