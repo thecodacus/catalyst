@@ -256,12 +256,30 @@ export function FileWriteDisplay({
                   <code
                     className="text-gray-100 dark:text-gray-200"
                     dangerouslySetInnerHTML={{
-                      __html:
-                        Prism.highlight(
-                          result.newContent || content,
-                          Prism.languages[language] || Prism.languages.plain,
-                          language,
-                        ) || '',
+                      __html: (() => {
+                        try {
+                          // Check if Prism and the language are available
+                          const prismLang = Prism.languages[language] || 
+                                          Prism.languages.plaintext || 
+                                          Prism.languages.plain ||
+                                          { tokenizePlaceholders: () => [] };
+                          return Prism.highlight(
+                            result.newContent || content,
+                            prismLang,
+                            language,
+                          ) || '';
+                        } catch (error) {
+                          console.warn(`Prism highlighting failed for language: ${language}`, error);
+                          // Return plain text with HTML escaping
+                          const text = result.newContent || content;
+                          return text
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#039;');
+                        }
+                      })(),
                     }}
                   />
                 </pre>
